@@ -77,7 +77,7 @@ autocommit on                           # commit the shadow repo when a session 
 | `shadow sync [--all]` | Bring this checkout, or every worktree, in line with the manifest. Repeat runs are harmless. |
 | `shadow status` | Show each link's state here, and every per-branch area. |
 | `shadow promote <branch> [--into <new>]` | Move a branch's per-branch files into the accepted paths, or over to a renamed branch. |
-| `shadow drop <branch>` | Delete a branch's per-branch files. They stay recoverable from the shadow repo's history. |
+| `shadow drop <branch>` | Drop a branch's branch area. Its proposals are committed first, so they stay recoverable from the shadow repo's history. |
 | `shadow decline` | Never offer a shadow repo for the current repo. |
 | `shadow hook-start` / `hook-end` | Entry points for agent session hooks (see below). |
 
@@ -115,8 +115,10 @@ checkout on feat/new-auth/
 - **When a branch no longer exists locally**, its area is reported at session start, so you can decide what to do with it:
   - `shadow promote <branch>` moves the files into the accepted paths. With `numbered`, files get the next `NNNN-` prefix, and links between the promoted files are rewritten to match.
   - `shadow promote <branch> --into <new>` moves the area to a renamed branch.
-  - `shadow drop <branch>` deletes it.
+  - `shadow drop <branch>` commits the branch area as it stands, then drops it, so its proposals stay in the shadow repo's history.
 - **Areas with no files are removed** without asking.
+
+`promote` and `drop` always commit to the shadow repo, whatever `autocommit` says, so its history records every promotion and drop. Each commit contains only the paths that command touched; any other changes you have pending in the shadow repo stay uncommitted.
 
 "No longer exists" means the local branch was deleted. It doesn't depend on detecting merges, so it works the same with squash merges and needs no network access.
 
@@ -144,7 +146,7 @@ Use an absolute path if `shadow` isn't on the PATH your hooks run with.
 - in a repo without one, tells the agent to ask you, once, whether to run `shadow init` or `shadow decline`;
 - outside git, or in a declined repo, does nothing.
 
-**At session end, `hook-end`** commits the shadow repo if `autocommit on` is set and anything changed.
+**At session end, `hook-end`** commits all pending changes in the shadow repo if `autocommit on` is set and anything changed. The commit message is always `chore: sync at session end`: several sessions can share one shadow repo, so it doesn't claim the changes came from any one branch or checkout.
 
 Hooks can't stop and wait for an answer, so every question goes through the agent: the hook adds a note to the context, and the agent asks you in conversation. The hooks themselves never run `init`, `promote` or `drop`.
 
@@ -162,7 +164,7 @@ Other agents or editors can use the same entry points. Both read and discard std
 
 ```sh
 test/run.sh                 # all tests
-test/run.sh test_drop_deletes_area
+test/run.sh test_drop_keeps_branch_area_in_history
 ```
 
 Each test runs in a fresh temp directory with an isolated git config and `SHADOW_HOME`.

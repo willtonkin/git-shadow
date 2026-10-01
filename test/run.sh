@@ -18,7 +18,10 @@ assert_file() { [ -f "$1" ] || fail "expected file $1"; }
 assert_missing() { [ ! -e "$1" ] && [ ! -L "$1" ] || fail "expected $1 to be absent"; }
 assert_contains() { grep -qF -- "$2" <<< "$1" || fail "expected output to contain: $2"$'\n'"got: $1"; }
 assert_not_contains() { ! grep -qF -- "$2" <<< "$1" || fail "expected output not to contain: $2"; }
-assert_clean() { [ -z "$(git status --porcelain)" ] || fail "expected clean git status, got: $(git status --porcelain)"; }
+# assert_clean [repo]: no uncommitted changes in <repo> (default: the current one)
+assert_clean() { [ -z "$(git -C "${1:-.}" status --porcelain)" ] || fail "expected clean git status in ${1:-.}, got: $(git -C "${1:-.}" status --porcelain)"; }
+# assert_pending <path>: <path> has uncommitted changes in the shadow repo
+assert_pending() { [ -n "$(git -C "$SHADOW_REPO" status --porcelain -- "$1")" ] || fail "expected $1 to stay uncommitted in the shadow repo"; }
 
 # setup: a code repo `r` on main with an origin remote, plus SHADOW_HOME.
 # HOME and XDG_CONFIG_HOME isolate global config on every git version;
@@ -125,13 +128,15 @@ test_sync_never_overwrites_a_conflicting_untracked_file() {
   [ "$(cat notes.md)" = mine ] || fail "local file was changed"
 }
 
-test_autocommit_on_session_end() {
+test_autocommit_on_session_end_names_no_branch() {
   shadow init >/dev/null
   manifest 'link .scratch/' 'autocommit on'
-  shadow sync
-  echo spec > .scratch/spec.md
-  echo '{}' | shadow hook-end
-  assert_contains "$(git -C "$SHADOW_REPO" log --oneline)" "chore: sync from main"
+  branch_checkout ../wt feat/one
+  echo spec > ../wt/.scratch/spec.md
+  (cd ../wt && echo '{}' | shadow hook-end)
+  [ "$(git -C "$SHADOW_REPO" log --format=%s)" = "chore: sync at session end" ] \
+    || fail "expected one commit, 'chore: sync at session end', got: $(git -C "$SHADOW_REPO" log --format=%s)"
+  assert_clean "$SHADOW_REPO"
 }
 
 test_context_files_are_printed_at_session_start() {
@@ -178,9 +183,9 @@ test_gone_branches_are_reported_and_empty_ones_removed() {
   assert_missing "$SHADOW_REPO/branches/feat~b"
 }
 
-test_promote_numbers_files_and_rewrites_links() {
+test_promote_numbers_files_rewrites_links_and_commits() {
   shadow init >/dev/null
-  manifest 'link docs/adr/' 'per-branch docs/adr/ numbered' 'trunk main' 'autocommit on'
+  manifest 'link docs/adr/' 'per-branch docs/adr/ numbered' 'trunk main'
   shadow sync
   echo old > docs/adr/0001-old.md
   branch_checkout ../a feat/a
@@ -191,7 +196,7 @@ test_promote_numbers_files_and_rewrites_links() {
   assert_file docs/adr/0003-b.md
   assert_contains "$(cat docs/adr/0002-a.md)" "(0003-b.md)"
   assert_missing "$SHADOW_REPO/branches/feat~a"
-  assert_contains "$(git -C "$SHADOW_REPO" log --oneline)" "promote per-branch files from feat/a"
+  assert_contains "$(git -C "$SHADOW_REPO" log --oneline)" "promote branch area feat/a to accepted paths"
 }
 
 test_promote_aborts_on_clash_without_moving_anything() {
@@ -205,21 +210,63 @@ test_promote_aborts_on_clash_without_moving_anything() {
   assert_file "$SHADOW_REPO/branches/feat~a/docs/adr/a.md"
 }
 
-test_promote_into_moves_area_to_renamed_branch() {
+test_promote_into_moves_area_to_renamed_branch_and_commits() {
   shadow init >/dev/null
   manifest 'per-branch docs/adr/' 'trunk main'
   branch_with_proposal ../a feat/a docs/adr/a.md
   shadow promote feat/a --into feat/renamed >/dev/null
   assert_file "$SHADOW_REPO/branches/feat~renamed/docs/adr/a.md"
   assert_contains "$(cat "$SHADOW_REPO/branches/feat~renamed/.branch")" "feat/renamed"
+  assert_contains "$(git -C "$SHADOW_REPO" log --oneline)" "promote branch area feat/a into feat/renamed"
 }
 
-test_drop_deletes_area() {
+test_drop_keeps_branch_area_in_history() {
   shadow init >/dev/null
   manifest 'per-branch docs/adr/' 'trunk main'
   branch_with_proposal ../a feat/a docs/adr/a.md
-  shadow drop feat/a >/dev/null
+  assert_contains "$(shadow drop feat/a)" "recoverable"
   assert_missing "$SHADOW_REPO/branches/feat~a"
+  local path='branches/feat~a/docs/adr/a.md' removed
+  removed=$(git -C "$SHADOW_REPO" log -n1 --format=%H -- "$path")
+  [ -n "$removed" ] || fail "expected $path in the shadow repo's history"
+  # branch_with_proposal writes each proposal's own path as its content.
+  assert_contains "$(git -C "$SHADOW_REPO" show "$removed^:$path")" "docs/adr/a.md"
+}
+
+# pending_note_and_proposal: autocommit on, a branch feat/a with a proposal, and
+# an unrelated note left uncommitted in the shadow repo.
+pending_note_and_proposal() {
+  shadow init >/dev/null
+  manifest 'link docs/adr/' 'link notes.md' 'per-branch docs/adr/' 'trunk main' 'autocommit on'
+  shadow sync
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  echo half-written > notes.md
+}
+
+test_drop_leaves_unrelated_changes_uncommitted() {
+  pending_note_and_proposal
+  shadow drop feat/a >/dev/null
+  assert_pending notes.md
+}
+
+test_promote_leaves_unrelated_changes_uncommitted() {
+  pending_note_and_proposal
+  shadow promote feat/a >/dev/null
+  assert_pending notes.md
+}
+
+test_promote_commits_only_the_named_proposal_not_glob_matches() {
+  pending_note_and_proposal
+  echo '[1]' > '../a/.branch-shadow/docs/adr/b[1].md'
+  echo accepted-later > docs/adr/b1.md
+  shadow promote feat/a >/dev/null
+  assert_pending docs/adr/b1.md
+}
+
+test_promote_into_leaves_unrelated_changes_uncommitted() {
+  pending_note_and_proposal
+  shadow promote feat/a --into feat/renamed >/dev/null
+  assert_pending notes.md
 }
 
 tests=("$@")

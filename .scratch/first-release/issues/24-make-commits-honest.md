@@ -4,11 +4,11 @@
 
 **Blocked by:** 22, 23
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `drop` commits the branch area's current contents, including proposals created since the last commit, before removing it. The dropped proposals can be recovered from history even with `autocommit` off.
-- [ ] `promote` (both destinations) and `drop` stage only the paths they touched, and always commit, whatever `autocommit` says.
-- [ ] Unrelated pending changes in the shadow repo stay uncommitted after `promote` or `drop`.
-- [ ] With `autocommit on`, the session-end commit's message names no branch or checkout.
-- [ ] The README says `promote` and `drop` always commit, and describes `drop`'s snapshot and the neutral session-end message.
-- [ ] Each of these behaviours has a test.
+- [x] `drop` commits the branch area's current contents, including proposals created since the last commit, before removing it. The dropped proposals can be recovered from history even with `autocommit` off.
+- [x] `promote` (both destinations) and `drop` stage only the paths they touched, and always commit, whatever `autocommit` says.
+- [x] Unrelated pending changes in the shadow repo stay uncommitted after `promote` or `drop`.
+- [x] With `autocommit on`, the session-end commit's message names no branch or checkout.
+- [x] The README says `promote` and `drop` always commit, and describes `drop`'s snapshot and the neutral session-end message.
+- [x] Each of these behaviours has a test.
