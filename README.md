@@ -62,12 +62,14 @@ match      github.com/acme/my-app       # repo identity (filled in by `init`)
 link       AGENTS.md                    # symlink a file
 link       .scratch/                    # trailing / = directory
 per-branch docs/adr/ numbered           # per-branch area for new files (see below)
-trunk      main                         # default: origin/HEAD
+trunk      main                         # detected by `init`
 context    AGENTS.md                    # print into agent context at session start
 autocommit on                           # commit the shadow repo when a session ends
 ```
 
 **`match`** is the normalised `origin` URL, so every clone and worktree of the repo is recognised, wherever it lives. A repo with no remote is matched by path instead, as `path:/abs/path/to/.git`.
+
+**`trunk`** names the trunk, which gets no branch area. `init` detects it from `origin/HEAD`, then git's `init.defaultBranch`, then whichever of `main` or `master` exists, and writes it here. If none of those finds it, `init` warns and leaves the line out. With no `trunk` line, branch areas are off: `sync` creates none, and `sync` and session start say so until you add one.
 
 **`link`** is the only list. The same entries drive the symlinks and the exclude block, so the two can't drift apart. Remove a line and the next `sync` removes that link, and any folders the link leaves empty.
 

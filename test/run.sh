@@ -98,6 +98,39 @@ test_init_rejects_names_that_lookups_would_skip() {
   done
 }
 
+test_init_records_the_trunk_from_origin_head() {
+  git branch -q develop
+  git update-ref refs/remotes/origin/develop develop
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/develop
+  shadow init >/dev/null
+  assert_contains "$(cat "$SHADOW_REPO/.shadow")" "trunk   develop"
+}
+
+test_init_falls_back_to_the_default_branch_setting_then_main_or_master() {
+  shadow init >/dev/null  # setup sets init.defaultBranch to main
+  assert_contains "$(cat "$SHADOW_REPO/.shadow")" "trunk   main"
+  rm -rf "$SHADOW_HOME"
+  git config --global --unset init.defaultBranch
+  git branch -qm master
+  shadow init >/dev/null
+  assert_contains "$(cat "$SHADOW_REPO/.shadow")" "trunk   master"
+}
+
+test_init_without_a_trunk_warns_and_branch_areas_stay_off() {
+  git config --global --unset init.defaultBranch
+  git branch -qm dev
+  local out; out=$(shadow init 2>&1)
+  assert_contains "$out" "couldn't find the trunk"
+  ! grep -q '^trunk' "$SHADOW_REPO/.shadow" || fail "expected no trunk line in the manifest"
+  manifest 'per-branch docs/adr/'
+  assert_contains "$(shadow sync 2>&1)" "branch areas are off until"
+  assert_missing .branch-shadow
+  out=$(echo '{}' | shadow hook-start)
+  assert_contains "$out" "branch areas are off until"
+  assert_not_contains "$out" "put NEW files"
+  assert_missing "$SHADOW_REPO/branches"
+}
+
 test_unknown_repo_asks_once_then_respects_decline() {
   assert_contains "$(echo '{}' | shadow hook-start)" "has no shadow repo"
   shadow decline >/dev/null
@@ -180,7 +213,7 @@ test_context_files_are_printed_at_session_start() {
 
 test_per_branch_areas_are_isolated_and_skip_trunk() {
   shadow init >/dev/null
-  manifest 'link docs/adr/' 'per-branch docs/adr/ numbered' 'trunk main'
+  manifest 'link docs/adr/' 'per-branch docs/adr/ numbered'
   shadow sync
   assert_missing .branch-shadow
   assert_contains "$(echo '{}' | shadow hook-start)" "trunk branch (main)"
@@ -204,7 +237,7 @@ test_detached_head_gets_no_area() {
 
 test_gone_branches_are_reported_and_empty_ones_removed() {
   shadow init >/dev/null
-  manifest 'per-branch docs/adr/' 'trunk main'
+  manifest 'per-branch docs/adr/'
   branch_with_proposal ../a feat/a docs/adr/a.md
   branch_checkout ../b feat/b
   git worktree remove ../a && git branch -qD feat/a
@@ -217,7 +250,7 @@ test_gone_branches_are_reported_and_empty_ones_removed() {
 
 test_promote_numbers_files_rewrites_links_and_commits() {
   shadow init >/dev/null
-  manifest 'link docs/adr/' 'per-branch docs/adr/ numbered' 'trunk main'
+  manifest 'link docs/adr/' 'per-branch docs/adr/ numbered'
   shadow sync
   echo old > docs/adr/0001-old.md
   branch_checkout ../a feat/a
@@ -233,7 +266,7 @@ test_promote_numbers_files_rewrites_links_and_commits() {
 
 test_promote_rewrites_references_from_outside_the_promoted_set() {
   shadow init >/dev/null
-  manifest 'link docs/adr/' 'link .scratch/' 'per-branch docs/adr/ numbered' 'trunk main'
+  manifest 'link docs/adr/' 'link .scratch/' 'per-branch docs/adr/ numbered'
   shadow sync
   echo 'see [a](../docs/adr/a.md)' > .scratch/spec.md
   branch_with_proposal ../a feat/a docs/adr/a.md
@@ -250,7 +283,7 @@ test_promote_rewrites_references_from_outside_the_promoted_set() {
 
 test_promote_leaves_names_that_only_share_an_ending_alone() {
   shadow init >/dev/null
-  manifest 'link docs/adr/' 'link notes.md' 'per-branch docs/adr/ numbered' 'trunk main'
+  manifest 'link docs/adr/' 'link notes.md' 'per-branch docs/adr/ numbered'
   shadow sync
   echo 'old-tokens.md, tokens.md, session-tokens.md.' > notes.md
   branch_with_proposal ../a feat/a docs/adr/tokens.md
@@ -263,7 +296,7 @@ test_promote_leaves_names_that_only_share_an_ending_alone() {
 
 test_promote_leaves_a_rewrite_to_a_file_with_pending_changes_uncommitted() {
   shadow init >/dev/null
-  manifest 'link docs/adr/' 'link notes.md' 'per-branch docs/adr/ numbered' 'trunk main'
+  manifest 'link docs/adr/' 'link notes.md' 'per-branch docs/adr/ numbered'
   shadow sync
   echo notes > notes.md
   git -C "$SHADOW_REPO" add -A && git -C "$SHADOW_REPO" commit -qm setup
@@ -277,7 +310,7 @@ test_promote_leaves_a_rewrite_to_a_file_with_pending_changes_uncommitted() {
 
 test_promote_leaves_references_to_a_shared_name_alone() {
   shadow init >/dev/null
-  manifest 'link docs/' 'per-branch docs/adr/ numbered' 'per-branch docs/rfc/ numbered' 'trunk main'
+  manifest 'link docs/' 'per-branch docs/adr/ numbered' 'per-branch docs/rfc/ numbered'
   shadow sync
   mkdir docs/adr && echo old > docs/adr/0001-old.md
   branch_with_proposal ../a feat/a docs/adr/a.md
@@ -291,7 +324,7 @@ test_promote_leaves_references_to_a_shared_name_alone() {
 
 test_promote_aborts_on_clash_without_moving_anything() {
   shadow init >/dev/null
-  manifest 'link docs/adr/' 'per-branch docs/adr/' 'trunk main'
+  manifest 'link docs/adr/' 'per-branch docs/adr/'
   shadow sync
   echo accepted > docs/adr/a.md
   branch_with_proposal ../a feat/a docs/adr/a.md
@@ -302,7 +335,7 @@ test_promote_aborts_on_clash_without_moving_anything() {
 
 test_promote_into_moves_area_to_renamed_branch_and_commits() {
   shadow init >/dev/null
-  manifest 'per-branch docs/adr/' 'trunk main'
+  manifest 'per-branch docs/adr/'
   branch_with_proposal ../a feat/a docs/adr/a.md
   shadow promote feat/a --into feat/renamed >/dev/null
   assert_file "$SHADOW_REPO/branches/feat~renamed/docs/adr/a.md"
@@ -312,7 +345,7 @@ test_promote_into_moves_area_to_renamed_branch_and_commits() {
 
 test_promote_into_succeeds_after_rename_creates_empty_area() {
   shadow init >/dev/null
-  manifest 'per-branch docs/adr/' 'trunk main'
+  manifest 'per-branch docs/adr/'
   branch_with_proposal ../a feat/a docs/adr/a.md
   # The usual rename: the next session's sync makes an empty area for the new name.
   (cd ../a && git branch -m feat/renamed && shadow sync)
@@ -324,7 +357,7 @@ test_promote_into_succeeds_after_rename_creates_empty_area() {
 
 test_promote_into_adds_proposals_when_no_paths_collide() {
   shadow init >/dev/null
-  manifest 'per-branch docs/adr/' 'trunk main'
+  manifest 'per-branch docs/adr/'
   branch_with_proposal ../a feat/a docs/adr/a.md
   branch_with_proposal ../b feat/b docs/adr/b.md
   shadow promote feat/a --into feat/b >/dev/null
@@ -343,7 +376,7 @@ branch_areas_snapshot() {
 
 test_promote_into_refuses_colliding_paths_and_changes_nothing() {
   shadow init >/dev/null
-  manifest 'per-branch docs/adr/' 'trunk main'
+  manifest 'per-branch docs/adr/'
   branch_with_proposal ../a feat/a docs/adr/a.md
   branch_with_proposal ../b feat/b docs/adr/b.md
   echo theirs > ../b/.branch-shadow/docs/adr/a.md
@@ -356,7 +389,7 @@ test_promote_into_refuses_colliding_paths_and_changes_nothing() {
 
 test_promote_into_refuses_when_a_folder_is_a_file_there() {
   shadow init >/dev/null
-  manifest 'per-branch docs/adr/' 'trunk main'
+  manifest 'per-branch docs/adr/'
   branch_with_proposal ../a feat/a docs/adr/a.md
   mkdir ../a/.branch-shadow/docs/adr/x && echo y > ../a/.branch-shadow/docs/adr/x/y.md
   branch_with_proposal ../b feat/b docs/adr/x
@@ -367,7 +400,7 @@ test_promote_into_refuses_when_a_folder_is_a_file_there() {
 
 test_drop_keeps_branch_area_in_history() {
   shadow init >/dev/null
-  manifest 'per-branch docs/adr/' 'trunk main'
+  manifest 'per-branch docs/adr/'
   branch_with_proposal ../a feat/a docs/adr/a.md
   assert_contains "$(shadow drop feat/a)" "recoverable"
   assert_missing "$SHADOW_REPO/branches/feat~a"
@@ -382,7 +415,7 @@ test_drop_keeps_branch_area_in_history() {
 # an unrelated note left uncommitted in the shadow repo.
 pending_note_and_proposal() {
   shadow init >/dev/null
-  manifest 'link docs/adr/' 'link notes.md' 'per-branch docs/adr/' 'trunk main' 'autocommit on'
+  manifest 'link docs/adr/' 'link notes.md' 'per-branch docs/adr/' 'autocommit on'
   shadow sync
   branch_with_proposal ../a feat/a docs/adr/a.md
   echo half-written > notes.md

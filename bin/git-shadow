@@ -8,8 +8,9 @@
 #   per-branch <path> [numbered]  new files for <path> go in a per-branch area, reached from each
 #                                 checkout through .branch-shadow/<path>; `numbered` gives them the
 #                                 next NNNN- prefix when the branch is promoted
-#   trunk      <branch>           branch whose new files go straight to the accepted paths
-#                                 (default: origin/HEAD); it gets no per-branch area
+#   trunk      <branch>           branch whose new files go straight to the accepted paths; it
+#                                 gets no per-branch area. `init` writes it; with none, branch
+#                                 areas are off
 #   context    <file>             file (relative to the shadow repo) printed into agent context at session start
 #   autocommit on                 commit the shadow repo when an agent session ends
 #
@@ -93,13 +94,10 @@ is_declined() {
   [ -f "$DECLINED" ] && grep -qxF "$1" "$DECLINED"
 }
 
-# trunk_branch <shadow-dir>
-trunk_branch() {
-  local t
-  t=$(manifest_values "$1" trunk)
-  [ -n "$t" ] || t=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
-  printf '%s\n' "$t"
-}
+# trunk_branch <shadow-dir>: the manifest's trunk (the last trunk line wins), or nothing
+trunk_branch() { manifest_values "$1" trunk | tail -n 1; }
+
+NO_TRUNK_WARNING='no trunk set, so branch areas are off until you add a `trunk <branch>` line to the manifest'
 
 branch_slug() { printf '%s\n' "${1//\//~}"; }
 
@@ -117,6 +115,21 @@ branch_areas() {
 }
 
 branch_exists() { git show-ref --verify --quiet "refs/heads/$1"; }
+
+# detect_trunk: print the current repo's trunk, if one can be found: origin/HEAD,
+# then init.defaultBranch, then main, then master. Apart from origin/HEAD's, the
+# branch must exist locally to count.
+detect_trunk() {
+  local t
+  if t=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null); then
+    printf '%s\n' "${t#origin/}"
+    return 0
+  fi
+  for t in "$(git config --get init.defaultBranch || true)" main master; do
+    if [ -n "$t" ] && branch_exists "$t"; then printf '%s\n' "$t"; return 0; fi
+  done
+  return 0
+}
 
 # is_our_link <path> <target>: is <path> a symlink pointing exactly at <target>?
 is_our_link() { [ -L "$1" ] && [ "$(readlink "$1")" = "$2" ]; }
@@ -153,7 +166,7 @@ write_exclude() {
 
 # sync_branch_link <checkout-top> <shadow-dir>: point .branch-shadow at this branch's area
 sync_branch_link() {
-  local top=$1 shadow=$2 dst="$1/$BRANCH_LINK" branch area p
+  local top=$1 shadow=$2 dst="$1/$BRANCH_LINK" trunk branch area p
   if [ -e "$dst" ] && [ ! -L "$dst" ]; then
     warn "skipped $BRANCH_LINK: a real file is in the way"
     return
@@ -166,8 +179,10 @@ sync_branch_link() {
     esac
   fi
   has_per_branch "$shadow" || return 0
+  trunk=$(trunk_branch "$shadow")
+  if [ -z "$trunk" ]; then warn "$NO_TRUNK_WARNING"; return 0; fi
   branch=$(git -C "$top" symbolic-ref --quiet --short HEAD) || return 0
-  [ "$branch" = "$(cd "$top" && trunk_branch "$shadow")" ] && return 0
+  [ "$branch" = "$trunk" ] && return 0
   area=$(branch_area "$shadow" "$branch")
   mkdir -p "$area"
   [ -f "$area/.branch" ] || printf 'name    %s\ncreated %s\n' "$branch" "$(date +%F)" > "$area/.branch"
@@ -288,7 +303,7 @@ commit_session_end() {
 
 cmd_init() {
   git rev-parse --show-toplevel >/dev/null 2>&1 || die "not inside a git checkout"
-  local key name shadow
+  local key name shadow trunk
   key=$(repo_key)
   if shadow=$(find_shadow "$key"); then die "$key already has a shadow repo: $shadow"; fi
   # Default to the remote's repo name, or, with no remote, the folder of the
@@ -307,14 +322,20 @@ cmd_init() {
   esac
   shadow="$SHADOW_HOME/$name"
   [ -e "$shadow" ] && die "$shadow already exists; pass a different name"
+  trunk=$(detect_trunk)
   mkdir -p "$shadow"
-  cat > "$shadow/.shadow" <<EOF
-match   $key
+  {
+    echo "match   $key"
+    if [ -n "$trunk" ]; then echo "trunk   $trunk"; fi
+    cat <<'EOF'
 # link       <path>             symlinked into every checkout; trailing / for a directory
 # per-branch <path> [numbered]  new files for <path> go in .branch-shadow/<path>, one area per branch
+# trunk      <branch>           gets no branch area; with no trunk line, branch areas are off
 # context    <file>             printed into agent context at session start
 # autocommit on                 commit this repo when an agent session ends
 EOF
+  } > "$shadow/.shadow"
+  [ -n "$trunk" ] || warn "couldn't find the trunk (no origin/HEAD, init.defaultBranch, main or master); $NO_TRUNK_WARNING"
   git -C "$shadow" init -q
   if [ -f "$DECLINED" ]; then
     grep -vxF "$key" "$DECLINED" > "$DECLINED.tmp" || true
@@ -556,7 +577,7 @@ cmd_decline() {
 cmd_hook_start() {
   cat > /dev/null || true
   git rev-parse --show-toplevel >/dev/null 2>&1 || exit 0
-  local key shadow f out top branch p numbered gone area bin
+  local key shadow f out top trunk branch p numbered gone area bin
   bin=$(command -v git-shadow 2>/dev/null || echo "$0")
   key=$(repo_key)
   if ! shadow=$(find_shadow "$key"); then
@@ -581,8 +602,11 @@ EOF
   done < <(manifest_values "$shadow" context)
 
   if has_per_branch "$shadow"; then
+    trunk=$(trunk_branch "$shadow")
     branch=$(git symbolic-ref --quiet --short HEAD || true)
-    if [ -n "$branch" ] && [ "$branch" = "$(trunk_branch "$shadow")" ]; then
+    if [ -z "$trunk" ]; then
+      :  # sync's warning, printed above, says branch areas are off
+    elif [ -n "$branch" ] && [ "$branch" = "$trunk" ]; then
       echo "git-shadow: this checkout is on the trunk branch ($branch), so new files go straight in the accepted paths."
     elif [ -n "$branch" ]; then
       echo "git-shadow: this checkout is on branch $branch. Existing files stay where they are and are"
