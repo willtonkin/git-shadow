@@ -1,4 +1,4 @@
-# shadow
+# git-shadow
 
 Keep personal, untracked files for a repo (agent instructions, specs, decision records, notes) in a separate **local** git repo, and symlink them into every checkout and worktree of that repo.
 
@@ -27,16 +27,18 @@ Tools that keep their working state in the repo, like agent skills, spec-driven 
 - **leaving them untracked** means each worktree has its own copy, and they vanish when the worktree is removed;
 - **a global location** breaks tools that expect the files at fixed paths inside the repo.
 
-shadow keeps the files at the paths the tools expect, while storing them somewhere only you use.
+git-shadow keeps the files at the paths the tools expect, while storing them somewhere only you use.
 
 ## Install
 
 Requires bash, git 2.31+ and perl. Tested on macOS; it should run anywhere those are available.
 
 ```sh
-git clone <this repo> ~/code/shadow
-ln -s ~/code/shadow/bin/shadow ~/.local/bin/shadow   # anywhere on your PATH
+git clone <this repo> ~/code/git-shadow
+ln -s ~/code/git-shadow/bin/git-shadow ~/.local/bin/git-shadow   # anywhere on your PATH
 ```
+
+On your PATH, git also runs it as `git shadow`, which is how the examples below call it. Use `git shadow help` for the command list: git takes `git shadow --help` as a request for a man page, and there isn't one.
 
 Shadow repos live in `~/shadow/` by default. Set `SHADOW_HOME` to change that.
 
@@ -44,9 +46,9 @@ Shadow repos live in `~/shadow/` by default. Set `SHADOW_HOME` to change that.
 
 ```sh
 cd ~/code/my-app
-shadow init                       # creates ~/shadow/my-app/ with a manifest
+git shadow init                   # creates ~/shadow/my-app/ with a manifest
 $EDITOR ~/shadow/my-app/.shadow   # add link lines
-shadow sync --all                 # link into every worktree of this repo
+git shadow sync --all             # link into every worktree of this repo
 ```
 
 Any untracked files already at a linked path are moved into the shadow repo and replaced with a link. Run `init` in the checkout where you already have them.
@@ -73,13 +75,13 @@ autocommit on                           # commit the shadow repo when a session 
 
 | Command | What it does |
 |---|---|
-| `shadow init [name]` | Create a shadow repo for the current repo and attach this checkout. By default it's named after the remote's repo, or the main checkout's folder if there's no remote. |
-| `shadow sync [--all]` | Bring this checkout, or every worktree, in line with the manifest. Repeat runs are harmless. |
-| `shadow status` | Show each link's state here, and every per-branch area. |
-| `shadow promote <branch> [--into <new>]` | Move a branch's per-branch files into the accepted paths, or over to a renamed branch. |
-| `shadow drop <branch>` | Drop a branch's branch area. Its proposals are committed first, so they stay recoverable from the shadow repo's history. |
-| `shadow decline` | Never offer a shadow repo for the current repo. |
-| `shadow hook-start` / `hook-end` | Entry points for agent session hooks (see below). |
+| `git shadow init [name]` | Create a shadow repo for the current repo and attach this checkout. By default it's named after the remote's repo, or the main checkout's folder if there's no remote. |
+| `git shadow sync [--all]` | Bring this checkout, or every worktree, in line with the manifest. Repeat runs are harmless. |
+| `git shadow status` | Show each link's state here, and every per-branch area. |
+| `git shadow promote <branch> [--into <new>]` | Move a branch's per-branch files into the accepted paths, or over to a renamed branch. |
+| `git shadow drop <branch>` | Drop a branch's branch area. Its proposals are committed first, so they stay recoverable from the shadow repo's history. |
+| `git shadow decline` | Never offer a shadow repo for the current repo. |
+| `git shadow hook-start` / `hook-end` | Entry points for agent session hooks (see below). |
 
 ## Safety
 
@@ -113,9 +115,9 @@ checkout on feat/new-auth/
 - **The trunk branch gets no area**: new files there go straight to the accepted path.
 - **A detached HEAD gets no area either.**
 - **When a branch no longer exists locally**, its area is reported at session start, so you can decide what to do with it:
-  - `shadow promote <branch>` moves the files into the accepted paths. With `numbered`, files get the next `NNNN-` prefix, and references to them are rewritten to match in every text file in the shadow repo. Only whole file names match, so promoting `tokens.md` leaves `session-tokens.md` alone.
-  - `shadow promote <branch> --into <new>` moves the branch area to a renamed branch. If `<new>` has no branch area yet, or one with no proposals (as a session on the renamed branch creates), the old branch area takes its place. If `<new>` already has proposals, the old ones join them, unless a path appears in both: then it refuses and changes nothing, and you resolve it by hand.
-  - `shadow drop <branch>` commits the branch area as it stands, then drops it, so its proposals stay in the shadow repo's history.
+  - `git shadow promote <branch>` moves the files into the accepted paths. With `numbered`, files get the next `NNNN-` prefix, and references to them are rewritten to match in every text file in the shadow repo. Only whole file names match, so promoting `tokens.md` leaves `session-tokens.md` alone.
+  - `git shadow promote <branch> --into <new>` moves the branch area to a renamed branch. If `<new>` has no branch area yet, or one with no proposals (as a session on the renamed branch creates), the old branch area takes its place. If `<new>` already has proposals, the old ones join them, unless a path appears in both: then it refuses and changes nothing, and you resolve it by hand.
+  - `git shadow drop <branch>` commits the branch area as it stands, then drops it, so its proposals stay in the shadow repo's history.
 - **Areas with no files are removed** without asking.
 
 `promote` and `drop` always commit to the shadow repo, whatever `autocommit` says, so its history records every promotion and drop. Each commit contains only the paths that command touched; any other changes you have pending in the shadow repo stay uncommitted.
@@ -129,13 +131,13 @@ Add both hooks to `~/.claude/settings.json`:
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "shadow hook-start" }] }],
-    "SessionEnd":   [{ "hooks": [{ "type": "command", "command": "shadow hook-end" }] }]
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "git-shadow hook-start" }] }],
+    "SessionEnd":   [{ "hooks": [{ "type": "command", "command": "git-shadow hook-end" }] }]
   }
 }
 ```
 
-Use an absolute path if `shadow` isn't on the PATH your hooks run with.
+Use an absolute path if `git-shadow` isn't on the PATH your hooks run with.
 
 **At session start, `hook-start`:**
 
@@ -143,7 +145,7 @@ Use an absolute path if `shadow` isn't on the PATH your hooks run with.
   - syncs this checkout, so new worktrees are linked automatically;
   - prints the manifest's `context` files and the per-branch instructions into the session;
   - lists any per-branch areas whose branch is gone;
-- in a repo without one, tells the agent to ask you, once, whether to run `shadow init` or `shadow decline`;
+- in a repo without one, tells the agent to ask you, once, whether to run `init` or `decline`;
 - outside git, or in a declined repo, does nothing.
 
 **At session end, `hook-end`** commits all pending changes in the shadow repo if `autocommit on` is set and anything changed. The commit message is always `chore: sync at session end`: several sessions can share one shadow repo, so it doesn't claim the changes came from any one branch or checkout.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shadow: keep personal, untracked files for a repo in a separate local git
+# git-shadow: keep personal, untracked files for a repo in a separate local git
 # repo under $SHADOW_HOME, and symlink them into every checkout of that repo.
 #
 # Each shadow repo has a manifest at <shadow>/.shadow:
@@ -23,12 +23,12 @@ BRANCH_LINK=.branch-shadow
 BEGIN_MARK='# >>> shadow (managed by `shadow sync`; edit the manifest instead)'
 END_MARK='# <<< shadow'
 
-die() { echo "shadow: $*" >&2; exit 1; }
-warn() { echo "shadow: $*" >&2; }
+die() { echo "git-shadow: $*" >&2; exit 1; }
+warn() { echo "git-shadow: $*" >&2; }
 
 usage() {
   cat <<'EOF'
-usage: shadow <command>
+usage: git shadow <command>   (or git-shadow <command>)
 
   init [name]                        create a shadow repo for the current repo and attach this checkout
   sync [--all]                       bring this checkout (or every worktree) in line with the manifest
@@ -256,7 +256,7 @@ prune_empty_gone_branch_areas() {
 # line (`shadow=$(require_shadow)`): `local shadow=$(...)` would hide the failure.
 require_shadow() {
   git rev-parse --show-toplevel >/dev/null 2>&1 || die "not inside a git checkout"
-  find_shadow "$(repo_key)" || die "no shadow repo for $(repo_key); run \`shadow init\`"
+  find_shadow "$(repo_key)" || die "no shadow repo for $(repo_key); run \`git shadow init\`"
 }
 
 # commit_paths <shadow-dir> <message> <path>...: commit changes under the given
@@ -321,7 +321,7 @@ EOF
     mv "$DECLINED.tmp" "$DECLINED"
   fi
   sync_checkout "$(git rev-parse --show-toplevel)" "$shadow"
-  echo "created $shadow; add link lines to $shadow/.shadow, then run \`shadow sync --all\`"
+  echo "created $shadow; add link lines to $shadow/.shadow, then run \`git shadow sync --all\`"
 }
 
 cmd_sync() {
@@ -388,7 +388,7 @@ promote_into_branch() {
     replace_branch_area "$src" "$dst" "$into"
   fi
   commit_paths "$shadow" "chore: promote branch area $name into $into" "$src" "$dst"
-  echo "promoted branch area $name into $into; run \`shadow sync --all\` to repoint checkouts"
+  echo "promoted branch area $name into $into; run \`git shadow sync --all\` to repoint checkouts"
 }
 
 # add_proposals <src-area> <dst-area> <branch> <new-branch>: move every proposal
@@ -444,7 +444,7 @@ rewrite_references() {
     }
     for my $old (sort keys %shared) {
       delete $renamed_to{$old};
-      warn "shadow: left references to $old as they were: proposals with that name got different numbers\n";
+      warn "git-shadow: left references to $old as they were: proposals with that name got different numbers\n";
     }
     delete $renamed_to{$_} for grep { $renamed_to{$_} eq $_ } keys %renamed_to;
     exit 0 unless %renamed_to;
@@ -456,12 +456,12 @@ rewrite_references() {
       chomp $file;
       next if -B $file;
       my ($in, $out);
-      unless (open $in, "<", $file) { warn "shadow: could not check $file for references: $!\n"; next; }
+      unless (open $in, "<", $file) { warn "git-shadow: could not check $file for references: $!\n"; next; }
       my $text = do { local $/; <$in> };
       close $in;
       (my $rewritten = $text) =~ s/$reference/$renamed_to{$1}/g;
       next if $rewritten eq $text;
-      unless (open $out, ">", $file) { warn "shadow: could not rewrite references in $file: $!\n"; next; }
+      unless (open $out, ">", $file) { warn "git-shadow: could not rewrite references in $file: $!\n"; next; }
       print $out $rewritten;
       close $out;
       print "$file\n";
@@ -520,10 +520,10 @@ promote_to_accepted() {
 cmd_promote() {
   local shadow name=${1:-} into=""
   shadow=$(require_shadow)
-  [ -n "$name" ] || die "usage: shadow promote <branch> [--into <branch>]"
+  [ -n "$name" ] || die "usage: git shadow promote <branch> [--into <branch>]"
   if [ "${2:-}" = --into ]; then
     into=${3:-}
-    [ -n "$into" ] || die "usage: shadow promote <branch> --into <branch>"
+    [ -n "$into" ] || die "usage: git shadow promote <branch> --into <branch>"
   fi
   [ -d "$(branch_area "$shadow" "$name")" ] || die "no per-branch files for $name"
   if [ -n "$into" ]; then
@@ -536,7 +536,7 @@ cmd_promote() {
 cmd_drop() {
   local shadow name=${1:-} src
   shadow=$(require_shadow)
-  [ -n "$name" ] || die "usage: shadow drop <branch>"
+  [ -n "$name" ] || die "usage: git shadow drop <branch>"
   src=$(branch_area "$shadow" "$name")
   [ -d "$src" ] || die "no per-branch files for $name"
   # Commit the branch area as it stands first, so its proposals really are in history.
@@ -557,12 +557,12 @@ cmd_hook_start() {
   cat > /dev/null || true
   git rev-parse --show-toplevel >/dev/null 2>&1 || exit 0
   local key shadow f out top branch p numbered gone area bin
-  bin=$(command -v shadow 2>/dev/null || echo "$0")
+  bin=$(command -v git-shadow 2>/dev/null || echo "$0")
   key=$(repo_key)
   if ! shadow=$(find_shadow "$key"); then
     is_declined "$key" && exit 0
     cat <<EOF
-shadow: this repo ($key) has no shadow repo for personal, untracked files.
+git-shadow: this repo ($key) has no shadow repo for personal, untracked files.
 At a natural pause, ask the user once whether to create one (\`$bin init\`)
 or never be asked again for this repo (\`$bin decline\`). Don't run either without their answer.
 EOF
@@ -583,9 +583,9 @@ EOF
   if has_per_branch "$shadow"; then
     branch=$(git symbolic-ref --quiet --short HEAD || true)
     if [ -n "$branch" ] && [ "$branch" = "$(trunk_branch "$shadow")" ]; then
-      echo "shadow: this checkout is on the trunk branch ($branch), so new files go straight in the accepted paths."
+      echo "git-shadow: this checkout is on the trunk branch ($branch), so new files go straight in the accepted paths."
     elif [ -n "$branch" ]; then
-      echo "shadow: this checkout is on branch $branch. Existing files stay where they are and are"
+      echo "git-shadow: this checkout is on branch $branch. Existing files stay where they are and are"
       echo "edited in place, but put NEW files for these paths in this branch's area instead:"
       while read -r p numbered; do
         printf '  %s/ -> %s/%s/' "$p" "$BRANCH_LINK" "$p"
@@ -594,7 +594,7 @@ EOF
       done < <(per_branch_paths "$shadow")
       echo "Read both locations: $BRANCH_LINK/ holds this branch's proposals, the plain paths hold accepted files."
     else
-      echo "shadow: this checkout has no branch (detached HEAD), so it has no per-branch area."
+      echo "git-shadow: this checkout has no branch (detached HEAD), so it has no per-branch area."
       echo "Before creating a new file under $(per_branch_paths "$shadow" | awk '{ printf "%s%s/", sep, $1; sep = ", " }'), ask the user where it should go."
     fi
     echo
@@ -602,7 +602,7 @@ EOF
     prune_empty_gone_branch_areas "$shadow"
     gone=$(gone_branch_areas "$shadow")
     if [ -n "$gone" ]; then
-      echo "shadow: these branches no longer exist, but still have per-branch files:"
+      echo "git-shadow: these branches no longer exist, but still have per-branch files:"
       while read -r area; do
         echo "  $(branch_name "$area") ($(branch_file_count "$area") files)"
       done <<< "$gone"

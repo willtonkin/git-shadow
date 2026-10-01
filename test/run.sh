@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# End-to-end tests for shadow. Each test runs in a fresh temp dir with its
+# End-to-end tests for git-shadow. Each test runs in a fresh temp dir with its
 # own HOME (so git config can't reach the developer's real one) and
 # SHADOW_HOME. Usage: test/run.sh [test-name...]
 set -euo pipefail
 
-SHADOW_BIN="$(cd "$(dirname "$0")/.." && pwd)/bin/shadow"
+SHADOW_BIN="$(cd "$(dirname "$0")/.." && pwd)/bin/git-shadow"
 PROJECT=thing  # the test remote's repo name, so also the shadow repo's name
 PASS=0 FAIL=0
 LOG=$(mktemp)
@@ -64,6 +64,12 @@ test_repo_key_normalises_remote_forms() {
     git remote set-url origin "$url"
     assert_contains "$(shadow init 2>&1; rm -rf "$SHADOW_HOME")" "created $SHADOW_REPO"
   done
+}
+
+test_runs_as_a_git_subcommand_when_on_path() {
+  local out; out=$(PATH="$(dirname "$SHADOW_BIN"):$PATH" git shadow init)
+  assert_contains "$out" "created $SHADOW_REPO"
+  assert_contains "$out" "git shadow sync --all"
 }
 
 test_init_without_a_remote_names_shadow_repo_after_the_checkout() {
