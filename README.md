@@ -45,13 +45,12 @@ Shadow repos live in `~/shadow/` by default. Set `SHADOW_HOME` to change that.
 ## Quick start
 
 ```sh
-cd ~/code/my-app
-git shadow init                   # creates ~/shadow/my-app/ with a manifest
-$EDITOR ~/shadow/my-app/.shadow   # add link lines
-git shadow sync --all             # link into every worktree of this repo
+cd ~/code/my-app                  # the checkout that already has the files
+git shadow init --link AGENTS.md --link .scratch/
+git shadow sync --all             # link into every other worktree of this repo
 ```
 
-Any untracked files already at a linked path are moved into the shadow repo and replaced with a link. Run `init` in the checkout where you already have them.
+`init` creates `~/shadow/my-app/` with a manifest, writes a `link` line for each `--link` path (relative to the checkout's root; a directory gets its trailing `/`), and syncs the checkout it runs in. Any untracked files already at those paths are moved into the shadow repo and replaced with a link, so the copies in this checkout are the ones kept. To add more paths later, edit the manifest's `link` lines and run `sync` again.
 
 ## The manifest
 
@@ -77,7 +76,7 @@ autocommit on                           # commit the shadow repo when a session 
 
 | Command | What it does |
 |---|---|
-| `git shadow init [name]` | Create a shadow repo for the current repo and attach this checkout. By default it's named after the remote's repo, or the main checkout's folder if there's no remote. |
+| `git shadow init [name] [--link <path>]...` | Create a shadow repo for the current repo and attach this checkout, linking and adopting each `--link` path. By default it's named after the remote's repo, or the main checkout's folder if there's no remote. |
 | `git shadow sync [--all]` | Bring this checkout, or every worktree, in line with the manifest. Repeat runs are harmless. |
 | `git shadow status` | Show each link's state here, and every per-branch area. |
 | `git shadow promote <branch> [--into <new>]` | Move a branch's per-branch files into the accepted paths, or over to a renamed branch. |

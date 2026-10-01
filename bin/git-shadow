@@ -31,7 +31,8 @@ usage() {
   cat <<'EOF'
 usage: git shadow <command>   (or git-shadow <command>)
 
-  init [name]                        create a shadow repo for the current repo and attach this checkout
+  init [name] [--link <path>]...     create a shadow repo for the current repo and attach this checkout,
+                                     linking each <path> and adopting the files already there
   sync [--all]                       bring this checkout (or every worktree) in line with the manifest
   status                             show links in this checkout and every branch's per-branch area
   promote <branch> [--into <branch>] move a branch's per-branch files into the accepted files,
@@ -303,12 +304,25 @@ commit_session_end() {
 
 cmd_init() {
   git rev-parse --show-toplevel >/dev/null 2>&1 || die "not inside a git checkout"
-  local key name shadow trunk
+  local key name="" shadow trunk top p links=()
+  top=$(git rev-parse --show-toplevel)
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --link)
+        [ -n "${2:-}" ] || die "usage: git shadow init [name] [--link <path>]..."
+        # Paths are relative to the checkout's root. A directory gets the trailing / that marks it.
+        p=${2#./}
+        case $p in /*|..|../*|*/../*|*/..) die "--link $2: give a path inside the checkout" ;; esac
+        if [ -d "$top/$p" ] && [ ! -L "$top/$p" ]; then p="${p%/}/"; fi
+        links+=("$p"); shift 2 ;;
+      -*) die "usage: git shadow init [name] [--link <path>]..." ;;
+      *) [ -z "$name" ] || die "usage: git shadow init [name] [--link <path>]..."; name=$1; shift ;;
+    esac
+  done
   key=$(repo_key)
   if shadow=$(find_shadow "$key"); then die "$key already has a shadow repo: $shadow"; fi
   # Default to the remote's repo name, or, with no remote, the folder of the
   # checkout that holds the git directory, whichever checkout init runs in.
-  name=${1:-}
   if [ -z "$name" ]; then
     case $key in
       path:*/.git) name=$(basename "$(dirname "${key#path:}")") ;;
@@ -327,6 +341,7 @@ cmd_init() {
   {
     echo "match   $key"
     if [ -n "$trunk" ]; then echo "trunk   $trunk"; fi
+    for p in ${links[@]+"${links[@]}"}; do echo "link    $p"; done
     cat <<'EOF'
 # link       <path>             symlinked into every checkout; trailing / for a directory
 # per-branch <path> [numbered]  new files for <path> go in .branch-shadow/<path>, one area per branch
@@ -341,8 +356,12 @@ EOF
     grep -vxF "$key" "$DECLINED" > "$DECLINED.tmp" || true
     mv "$DECLINED.tmp" "$DECLINED"
   fi
-  sync_checkout "$(git rev-parse --show-toplevel)" "$shadow"
-  echo "created $shadow; add link lines to $shadow/.shadow, then run \`git shadow sync --all\`"
+  sync_checkout "$top" "$shadow"
+  if [ ${#links[@]} -gt 0 ]; then
+    echo "created $shadow and linked those paths here; run \`git shadow sync --all\` to link every other worktree"
+  else
+    echo "created $shadow; add link lines to $shadow/.shadow, then run \`git shadow sync --all\`"
+  fi
 }
 
 cmd_sync() {

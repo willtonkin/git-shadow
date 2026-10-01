@@ -98,6 +98,31 @@ test_init_rejects_names_that_lookups_would_skip() {
   done
 }
 
+test_init_link_adopts_files_from_the_checkout_it_runs_in() {
+  git worktree add -q ../wt -b feat/one
+  echo theirs > ../wt/AGENTS.md
+  echo mine > AGENTS.md
+  mkdir -p .scratch docs/agents && echo spec > .scratch/spec.md && echo t > docs/agents/triage.md
+  local out; out=$(shadow init --link AGENTS.md --link .scratch/ --link docs/agents 2>&1)
+  assert_contains "$out" "adopted AGENTS.md"
+  assert_link AGENTS.md "$SHADOW_REPO/AGENTS.md"
+  assert_link .scratch "$SHADOW_REPO/.scratch"
+  assert_link docs/agents "$SHADOW_REPO/docs/agents"
+  [ "$(cat "$SHADOW_REPO/AGENTS.md")" = mine ] || fail "expected this checkout's copy to be kept"
+  assert_file "$SHADOW_REPO/.scratch/spec.md"
+  local m; m=$(cat "$SHADOW_REPO/.shadow")
+  assert_contains "$m" "link    AGENTS.md"
+  assert_contains "$m" "link    .scratch/"
+  assert_contains "$m" "link    docs/agents/"
+  assert_clean
+}
+
+test_init_link_takes_a_name_too() {
+  echo mine > AGENTS.md
+  shadow init mine --link AGENTS.md >/dev/null 2>&1
+  assert_link AGENTS.md "$SHADOW_HOME/mine/AGENTS.md"
+}
+
 test_init_records_the_trunk_from_origin_head() {
   git branch -q develop
   git update-ref refs/remotes/origin/develop develop
