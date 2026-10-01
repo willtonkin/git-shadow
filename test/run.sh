@@ -35,6 +35,17 @@ setup() {
   git config --global user.name test
   git config --global user.email test@example.com
   git config --global init.defaultBranch main
+  # A stub gh that fails until a test gives it pull requests (gh_prs), so the
+  # suite never reaches GitHub.
+  mkdir "$T/bin"
+  cat > "$T/bin/gh" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$T/gh-args"
+[ -f "$T/gh-prs.json" ] || exit 1
+cat "$T/gh-prs.json"
+EOF
+  chmod +x "$T/bin/gh"
+  export PATH="$T/bin:$PATH"
   git init -q "$T/r"
   cd "$T/r"
   git remote add origin "git@github.com:acme/$PROJECT.git"
@@ -43,6 +54,23 @@ setup() {
 }
 
 manifest() { printf '%s\n' "$@" >> "$SHADOW_REPO/.shadow"; }
+
+# gh_prs <branch>:<STATE>...: make the stub gh list one pull request into the
+# trunk per argument, newest first, as `gh pr list --json` prints them.
+gh_prs() {
+  local pr sep="" merged
+  for pr; do
+    merged=null; [ "${pr#*:}" = MERGED ] && merged='"2026-09-30T12:00:00Z"'
+    printf '%s{"headRefName":"%s","mergedAt":%s,"state":"%s"}' "$sep" "${pr%:*}" "$merged" "${pr#*:}"
+    sep=,
+  done | { printf '['; cat; printf ']\n'; } > "$T/gh-prs.json"
+}
+
+# delete_branch <dir> <branch>: remove a worktree and its branch, leaving the branch area gone
+delete_branch() { git worktree remove --force "$1" && git branch -qD "$2"; }
+
+# commit_on <dir> <file>: commit a new file in the checkout at <dir>
+commit_on() { echo "$2" > "$1/$2" && git -C "$1" add "$2" && git -C "$1" commit -qm "$2"; }
 
 # branch_checkout <dir> <branch>: a new worktree on a new branch, synced so it
 # has its branch link.
@@ -280,6 +308,174 @@ test_gone_branches_are_reported_and_empty_ones_removed() {
   assert_contains "$out" "feat/a (1 files)"
   assert_not_contains "$out" "feat/b"
   assert_missing "$SHADOW_REPO/branches/feat~b"
+}
+
+test_session_start_recommends_promoting_a_branch_merged_per_gh() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  delete_branch ../a feat/a
+  gh_prs feat/a:MERGED
+  local out; out=$(echo '{}' | shadow hook-start)
+  assert_contains "$out" "merged into the trunk (main)"
+  assert_contains "$out" "feat/a (1 files)"
+  assert_contains "$out" "promote <branch>"
+  assert_not_contains "$out" "no longer exist"
+  assert_contains "$(cat "$T/gh-args")" "pr list --state all --base main --json headRefName,state,mergedAt --limit 200"
+}
+
+test_session_start_recommends_promoting_a_merged_branch_that_still_exists() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  gh_prs feat/a:MERGED
+  local out; out=$(echo '{}' | shadow hook-start)
+  assert_contains "$out" "merged into the trunk (main)"
+  assert_contains "$out" "feat/a (1 files)"
+}
+
+test_session_start_recommends_dropping_a_gone_branch_whose_pr_was_closed() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  delete_branch ../a feat/a
+  gh_prs feat/a:CLOSED
+  local out; out=$(echo '{}' | shadow hook-start)
+  assert_contains "$out" "closed without merging"
+  assert_contains "$out" "feat/a (1 files)"
+  assert_contains "$out" "drop <branch>"
+  assert_not_contains "$out" "promote <branch>"
+}
+
+test_session_start_is_silent_about_a_gone_branch_with_an_open_pr() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  delete_branch ../a feat/a
+  gh_prs feat/a:OPEN
+  assert_not_contains "$(echo '{}' | shadow hook-start)" "feat/a"
+}
+
+test_session_start_goes_by_a_branchs_most_recent_pr() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  branch_with_proposal ../b feat/b docs/adr/b.md
+  delete_branch ../b feat/b
+  # Newest first: feat/a was reopened after a merge; feat/b merged after a closed attempt.
+  gh_prs feat/a:OPEN feat/b:MERGED feat/a:MERGED feat/b:CLOSED
+  local out; out=$(echo '{}' | shadow hook-start)
+  assert_contains "$out" "feat/b (1 files)"
+  assert_not_contains "$out" "feat/a"
+  assert_not_contains "$out" "closed without merging"
+}
+
+test_session_start_asks_about_a_gone_branch_with_no_pr() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  delete_branch ../a feat/a
+  gh_prs feat/other:MERGED
+  local out; out=$(echo '{}' | shadow hook-start)
+  assert_contains "$out" "no longer exist"
+  assert_contains "$out" "feat/a (1 files)"
+  assert_not_contains "$out" "merged into the trunk"
+}
+
+test_session_start_matches_prs_to_non_ascii_branch_names() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/'
+  branch_with_proposal ../a feat/café docs/adr/a.md
+  gh_prs feat/café:MERGED
+  assert_contains "$(echo '{}' | shadow hook-start)" "feat/café (1 files)"
+}
+
+test_without_gh_a_branch_in_origin_trunk_counts_as_merged() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  commit_on ../a code.txt
+  git update-ref refs/remotes/origin/main feat/a  # merged upstream, not fetched into main
+  local out; out=$(echo '{}' | shadow hook-start)  # setup's stub gh fails
+  assert_contains "$out" "merged into the trunk (main)"
+  assert_contains "$out" "feat/a (1 files)"
+}
+
+test_without_gh_a_branch_rebased_into_origin_trunk_counts_as_merged() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  commit_on ../a code.txt
+  commit_on . other.txt
+  git cherry-pick feat/a >/dev/null
+  git update-ref refs/remotes/origin/main main
+  assert_contains "$(echo '{}' | shadow hook-start)" "merged into the trunk (main)"
+}
+
+test_without_gh_a_new_branch_with_no_commits_is_not_merged() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/'
+  git update-ref refs/remotes/origin/main main
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  assert_not_contains "$(echo '{}' | shadow hook-start)" "merged"
+}
+
+test_a_gh_that_hangs_falls_back_to_ancestry() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  commit_on ../a code.txt
+  git update-ref refs/remotes/origin/main feat/a
+  printf '#!/usr/bin/env bash\nsleep 30\n' > "$T/bin/gh"
+  local start=$SECONDS out
+  out=$(echo '{}' | SHADOW_GH_TIMEOUT=1 shadow hook-start)
+  [ $((SECONDS - start)) -lt 10 ] || fail "expected hook-start to give up on gh"
+  assert_contains "$out" "merged into the trunk (main)"
+}
+
+test_status_shows_pr_states_and_where_they_came_from() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  branch_with_proposal ../b feat/b docs/adr/b.md
+  branch_with_proposal ../c feat/c docs/adr/c.md
+  branch_checkout ../d feat/d
+  delete_branch ../c feat/c
+  gh_prs feat/a:MERGED feat/b:OPEN feat/c:CLOSED feat/d:MERGED
+  local out; out=$(cd ../a && shadow status)
+  assert_contains "$out" "feat/a                                             current, merged (gh)  1 files"
+  assert_contains "$out" "feat/b                                             exists, open (gh)     1 files"
+  assert_contains "$out" "feat/c                                             gone, closed (gh)     1 files"
+  # With no proposals, a branch area isn't checked.
+  assert_contains "$out" "feat/d                                             exists                0 files"
+}
+
+test_status_shows_merges_found_without_gh() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  commit_on ../a code.txt
+  git update-ref refs/remotes/origin/main feat/a
+  assert_contains "$(shadow status)" "exists, merged (ancestry)"
+}
+
+test_promote_a_merged_branch_that_is_still_checked_out() {
+  shadow init >/dev/null
+  manifest 'link docs/adr/' 'per-branch docs/adr/'
+  shadow sync
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  gh_prs feat/a:MERGED
+  shadow promote feat/a >/dev/null
+  assert_file docs/adr/a.md
+  # The next sync gives the branch a fresh, empty branch area, which isn't reported.
+  (cd ../a && shadow sync)
+  assert_link ../a/.branch-shadow "$SHADOW_REPO/branches/feat~a"
+  assert_not_contains "$(cd ../a && echo '{}' | shadow hook-start)" "merged into the trunk"
+  # A file written after the merge is offered again, until a new pull request is opened.
+  echo late > ../a/.branch-shadow/docs/adr/late.md
+  assert_contains "$(cd ../a && echo '{}' | shadow hook-start)" "merged into the trunk"
+  gh_prs feat/a:OPEN feat/a:MERGED
+  assert_not_contains "$(cd ../a && echo '{}' | shadow hook-start)" "feat/a ("
 }
 
 test_promote_numbers_files_rewrites_links_and_commits() {

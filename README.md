@@ -33,6 +33,8 @@ git-shadow keeps the files at the paths the tools expect, while storing them som
 
 Requires bash, git 2.31+ and perl. Tested on macOS; it should run anywhere those are available.
 
+Optional: GitHub's [`gh`](https://cli.github.com), logged in, so session start and `status` can tell which branches' pull requests were merged or closed (see [Per-branch areas](#per-branch-areas)). Without it, merges are found from local history.
+
 ```sh
 git clone <this repo> ~/code/git-shadow
 ln -s ~/code/git-shadow/bin/git-shadow ~/.local/bin/git-shadow   # anywhere on your PATH
@@ -78,7 +80,7 @@ autocommit on                           # commit the shadow repo when a session 
 |---|---|
 | `git shadow init [name] [--link <path>]...` | Create a shadow repo for the current repo and attach this checkout, linking and adopting each `--link` path. By default it's named after the remote's repo, or the main checkout's folder if there's no remote. |
 | `git shadow sync [--all]` | Bring this checkout, or every worktree, in line with the manifest. Repeat runs are harmless. |
-| `git shadow status` | Show each link's state here, and every per-branch area. |
+| `git shadow status` | Show each link's state here, and every per-branch area: whether its branch is current, exists or is gone, and whether it's merged, open or closed. |
 | `git shadow promote <branch> [--into <new>]` | Move a branch's per-branch files into the accepted paths, or over to a renamed branch. |
 | `git shadow drop <branch>` | Drop a branch's branch area. Its proposals are committed first, so they stay recoverable from the shadow repo's history. |
 | `git shadow decline` | Never offer a shadow repo for the current repo. Running `init` there later undoes this. |
@@ -115,7 +117,7 @@ checkout on feat/new-auth/
 - **Each checkout sees only its own branch's area.**
 - **The trunk branch gets no area**: new files there go straight to the accepted path.
 - **A detached HEAD gets no area either.**
-- **When a branch no longer exists locally**, its area is reported at session start, so you can decide what to do with it:
+- **When a branch is merged into the trunk, or no longer exists locally**, its area is reported at session start, so you can decide what to do with it:
   - `git shadow promote <branch>` moves the files into the accepted paths. With `numbered`, files get the next `NNNN-` prefix, and references to them are rewritten to match in every text file in the shadow repo. Only whole file names match, so promoting `tokens.md` leaves `session-tokens.md` alone.
   - `git shadow promote <branch> --into <new>` moves the branch area to a renamed branch. If `<new>` has no branch area yet, or one with no proposals (as a session on the renamed branch creates), the old branch area takes its place. If `<new>` already has proposals, the old ones join them, unless a path appears in both: then it refuses and changes nothing, and you resolve it by hand.
   - `git shadow drop <branch>` commits the branch area as it stands, then drops it, so its proposals stay in the shadow repo's history.
@@ -123,7 +125,18 @@ checkout on feat/new-auth/
 
 `promote` and `drop` always commit to the shadow repo, whatever `autocommit` says, so its history records every promotion and drop. Each commit contains only the paths that command touched; any other changes you have pending in the shadow repo stay uncommitted.
 
-"No longer exists" means the local branch was deleted. It doesn't depend on detecting merges, so it works the same with squash merges and needs no network access.
+Session start sorts every branch area that has files, whether its branch exists, is gone or is checked out:
+
+| Branch | Pull request into the trunk | Session start |
+|---|---|---|
+| exists or gone | merged | recommends `promote` |
+| gone | closed without merging | recommends `drop` |
+| gone | open | says nothing |
+| gone | none, or no answer | asks: `promote`, `promote --into` or `drop` |
+
+Only merges into the trunk count; a branch stacked on another still uses `promote --into`. Pull requests are matched to branch areas by branch name, including ones from forks. The answer comes from one `gh pr list` call, which gives up after 5 seconds. If `gh` is missing, not logged in, slow or fails, a branch that still exists counts as merged when its commits, or equivalent ones (as a rebase merge leaves), are in `origin/<trunk>`, as last fetched; git-shadow never fetches. That misses squash merges. A branch that's still where it was created is never counted, though it's in the trunk too, and neither is one whose reflog is missing or expired. `status` shows where each answer came from: `gh` or `ancestry`.
+
+You can promote a merged branch that's still checked out. The next `sync` gives it a fresh, empty branch area; a file written there later is offered for promotion again (drop it if it doesn't belong), until a new pull request from the branch reads as open.
 
 ## Agent integration (Claude Code)
 
@@ -145,7 +158,7 @@ Hooks often run with a shorter PATH than your shell, so a bare `git-shadow` can 
 - in a repo with a shadow repo:
   - syncs this checkout, so new worktrees are linked automatically, and passes any warnings from the sync (skipped paths, adopted files, a missing trunk) into the agent's context;
   - prints the manifest's `context` files and the per-branch instructions into the session;
-  - lists any per-branch areas whose branch is gone;
+  - lists the per-branch areas that need a decision: merged, or gone (see [Per-branch areas](#per-branch-areas));
 - in a repo without one, tells the agent to ask you, once, whether to run `init` or `decline`;
 - outside git, or in a declined repo, does nothing.
 
@@ -161,7 +174,7 @@ Other agents or editors can use the same entry points. Both read and discard std
 - **A checkout is only linked once something runs `sync` there.** The `SessionStart` hook does this when a session starts; `sync --all` does every worktree at once.
 - **A branch switch mid-session** leaves that session's per-branch instructions out of date until the next session.
 - **Numbering on promote** only applies to files directly inside a `numbered` path.
-- **No "not yet" answer:** a gone branch is reported in every session until you promote or drop it.
+- **No "not yet" answer:** a gone branch with no open pull request, or a merged one, is reported in every session until you promote or drop it.
 
 ## Development
 

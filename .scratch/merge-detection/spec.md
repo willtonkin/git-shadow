@@ -1,6 +1,6 @@
 # Merge detection for branch areas
 
-Status: ready-for-agent
+Status: done
 Blocked by: first-release
 
 See `CONTEXT.md` (merged, open, closed, gone) and `docs/adr/0001-detect-merges-via-gh-with-local-fallback.md`.
@@ -48,3 +48,11 @@ The hooks still never run `promote` or `drop`; the agent asks the user.
 - README: update the "Per-branch areas" section (the "doesn't depend on detecting merges" paragraph) and remove or narrow the "No 'not yet' answer" limitation; note the optional `gh` dependency under Install.
 
 ## Comments
+
+Implemented in `bin/git-shadow` (`pr_states`, `merged_locally`, `branch_area_answers`, `report_branch_areas`, `cmd_status`), with tests in `test/run.sh` (the stub `gh` lives in `setup`). Decisions made along the way:
+
+- **Fresh branches aren't merged by ancestry.** A branch still at the commit it was created on is trivially an ancestor of `origin/<trunk>`, so ancestry only counts once the branch has moved from its reflog's first entry. A branch with no reflog is never counted by ancestry. Patch-id is unaffected.
+- **Local fallback is all or nothing.** It runs only when `gh` can't answer at all, as written. While `gh` works, a branch with no pull request falls through to the gone rule.
+- **Sources.** Patch-id merges are labelled `ancestry` in `status`, since the spec names two sources.
+- **Timeout.** `gh` gets 5 seconds, set by `SHADOW_GH_TIMEOUT` (used by the tests). On timeout its whole process group is killed.
+- **Matching.** Pull requests are matched by head branch name only, so a fork's PR with the same branch name counts.
