@@ -4,11 +4,11 @@
 
 **Blocked by:** 22, 23
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] If the destination branch area doesn't exist or holds no proposals, the source takes its place.
-- [ ] If the destination holds proposals and no relative path appears in both, the two branch areas are merged.
-- [ ] If any path appears in both, the command refuses and both branch areas are left exactly as they were.
-- [ ] The branch-area record is rewritten portably, without in-place editing, before anything moves.
-- [ ] The README describes the merge and refusal behaviour.
-- [ ] Tests cover the empty destination, the non-colliding merge and the collision refusal.
+- [x] If the destination branch area doesn't exist or holds no proposals, the source takes its place.
+- [x] If the destination holds proposals and no relative path appears in both, the two branch areas are merged.
+- [x] If any path appears in both, the command refuses and both branch areas are left exactly as they were.
+- [x] The branch-area record is rewritten portably, without in-place editing, before anything moves.
+- [x] The README describes the merge and refusal behaviour.
+- [x] Tests cover the empty destination, the non-colliding merge and the collision refusal.

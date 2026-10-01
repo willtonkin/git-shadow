@@ -114,7 +114,7 @@ checkout on feat/new-auth/
 - **A detached HEAD gets no area either.**
 - **When a branch no longer exists locally**, its area is reported at session start, so you can decide what to do with it:
   - `shadow promote <branch>` moves the files into the accepted paths. With `numbered`, files get the next `NNNN-` prefix, and links between the promoted files are rewritten to match.
-  - `shadow promote <branch> --into <new>` moves the area to a renamed branch.
+  - `shadow promote <branch> --into <new>` moves the branch area to a renamed branch. If `<new>` has no branch area yet, or one with no proposals (as a session on the renamed branch creates), the old branch area takes its place. If `<new>` already has proposals, the old ones join them, unless a path appears in both: then it refuses and changes nothing, and you resolve it by hand.
   - `shadow drop <branch>` commits the branch area as it stands, then drops it, so its proposals stay in the shadow repo's history.
 - **Areas with no files are removed** without asking.
 

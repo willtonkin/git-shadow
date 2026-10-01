@@ -220,6 +220,61 @@ test_promote_into_moves_area_to_renamed_branch_and_commits() {
   assert_contains "$(git -C "$SHADOW_REPO" log --oneline)" "promote branch area feat/a into feat/renamed"
 }
 
+test_promote_into_succeeds_after_rename_creates_empty_area() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/' 'trunk main'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  # The usual rename: the next session's sync makes an empty area for the new name.
+  (cd ../a && git branch -m feat/renamed && shadow sync)
+  shadow promote feat/a --into feat/renamed >/dev/null
+  assert_file ../a/.branch-shadow/docs/adr/a.md
+  assert_contains "$(cat "$SHADOW_REPO/branches/feat~renamed/.branch")" "feat/renamed"
+  assert_missing "$SHADOW_REPO/branches/feat~a"
+}
+
+test_promote_into_adds_proposals_when_no_paths_collide() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/' 'trunk main'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  branch_with_proposal ../b feat/b docs/adr/b.md
+  shadow promote feat/a --into feat/b >/dev/null
+  assert_file ../b/.branch-shadow/docs/adr/a.md
+  assert_file ../b/.branch-shadow/docs/adr/b.md
+  assert_contains "$(cat "$SHADOW_REPO/branches/feat~b/.branch")" "feat/b"
+  assert_missing "$SHADOW_REPO/branches/feat~a"
+  assert_contains "$(git -C "$SHADOW_REPO" log --oneline)" "promote branch area feat/a into feat/b"
+}
+
+# branch_areas_snapshot: every file under the shadow repo's branches/, with its contents
+branch_areas_snapshot() {
+  (cd "$SHADOW_REPO/branches" && find . | sort | while read -r f; do
+    echo "== $f"; [ -f "$f" ] && cat "$f"; done)
+}
+
+test_promote_into_refuses_colliding_paths_and_changes_nothing() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/' 'trunk main'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  branch_with_proposal ../b feat/b docs/adr/b.md
+  echo theirs > ../b/.branch-shadow/docs/adr/a.md
+  local before out
+  before=$(branch_areas_snapshot)
+  out=$(shadow promote feat/a --into feat/b 2>&1) && fail "expected promote to fail"
+  assert_contains "$out" "docs/adr/a.md"
+  [ "$(branch_areas_snapshot)" = "$before" ] || fail "branch areas changed"
+}
+
+test_promote_into_refuses_when_a_folder_is_a_file_there() {
+  shadow init >/dev/null
+  manifest 'per-branch docs/adr/' 'trunk main'
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  mkdir ../a/.branch-shadow/docs/adr/x && echo y > ../a/.branch-shadow/docs/adr/x/y.md
+  branch_with_proposal ../b feat/b docs/adr/x
+  local before; before=$(branch_areas_snapshot)
+  shadow promote feat/a --into feat/b 2>/dev/null && fail "expected promote to fail"
+  [ "$(branch_areas_snapshot)" = "$before" ] || fail "branch areas changed"
+}
+
 test_drop_keeps_branch_area_in_history() {
   shadow init >/dev/null
   manifest 'per-branch docs/adr/' 'trunk main'
