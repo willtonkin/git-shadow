@@ -13,9 +13,9 @@ trap 'rm -f "$LOG"' EXIT
 shadow() { "$SHADOW_BIN" "$@"; }
 
 fail() { echo "    $*" >&2; return 1; }
-assert_link() { [ -L "$1" ] && [ "$(readlink "$1")" = "$2" ] || fail "expected $1 -> $2, got $(readlink "$1" 2>/dev/null || echo 'no link')"; }
+assert_link() { { [ -L "$1" ] && [ "$(readlink "$1")" = "$2" ]; } || fail "expected $1 -> $2, got $(readlink "$1" 2>/dev/null || echo 'no link')"; }
 assert_file() { [ -f "$1" ] || fail "expected file $1"; }
-assert_missing() { [ ! -e "$1" ] && [ ! -L "$1" ] || fail "expected $1 to be absent"; }
+assert_missing() { { [ ! -e "$1" ] && [ ! -L "$1" ]; } || fail "expected $1 to be absent"; }
 assert_contains() { grep -qF -- "$2" <<< "$1" || fail "expected output to contain: $2"$'\n'"got: $1"; }
 assert_not_contains() { ! grep -qF -- "$2" <<< "$1" || fail "expected output not to contain: $2"; }
 # assert_clean [repo]: no uncommitted changes in <repo> (default: the current one)
