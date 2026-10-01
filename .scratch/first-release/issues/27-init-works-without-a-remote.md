@@ -4,9 +4,9 @@
 
 **Blocked by:** 22
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] For a project repo with no remote, the default shadow repo name is the checkout's folder name.
-- [ ] `sync` after such an `init` finds the shadow repo.
-- [ ] `init` refuses a shadow repo name that starts with a dot.
-- [ ] Tests cover both.
+- [x] For a project repo with no remote, the default shadow repo name is the checkout's folder name.
+- [x] `sync` after such an `init` finds the shadow repo.
+- [x] `init` refuses a shadow repo name that starts with a dot.
+- [x] Tests cover both.

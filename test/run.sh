@@ -66,6 +66,32 @@ test_repo_key_normalises_remote_forms() {
   done
 }
 
+test_init_without_a_remote_names_shadow_repo_after_the_checkout() {
+  git remote remove origin
+  # With no remote, the shadow repo is named after the checkout's folder.
+  SHADOW_REPO="$SHADOW_HOME/$(basename "$PWD")"
+  assert_contains "$(shadow init)" "created $SHADOW_REPO"
+  manifest 'link notes.md'
+  shadow sync
+  assert_link notes.md "$SHADOW_REPO/notes.md"
+}
+
+test_init_from_another_checkout_still_names_shadow_repo_after_the_first() {
+  git remote remove origin
+  git worktree add -q ../wt -b feat/one
+  cd ../wt
+  assert_contains "$(shadow init)" "created $SHADOW_HOME/r"  # setup's first checkout is r
+}
+
+test_init_rejects_names_that_lookups_would_skip() {
+  local name out
+  for name in .hidden a/b; do
+    out=$(shadow init "$name" 2>&1) && fail "expected init $name to fail"
+    assert_contains "$out" "pass a different name"
+    assert_missing "$SHADOW_HOME/$name"
+  done
+}
+
 test_unknown_repo_asks_once_then_respects_decline() {
   assert_contains "$(echo '{}' | shadow hook-start)" "has no shadow repo"
   shadow decline >/dev/null

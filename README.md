@@ -73,7 +73,7 @@ autocommit on                           # commit the shadow repo when a session 
 
 | Command | What it does |
 |---|---|
-| `shadow init [name]` | Create a shadow repo for the current repo and attach this checkout. |
+| `shadow init [name]` | Create a shadow repo for the current repo and attach this checkout. By default it's named after the remote's repo, or the main checkout's folder if there's no remote. |
 | `shadow sync [--all]` | Bring this checkout, or every worktree, in line with the manifest. Repeat runs are harmless. |
 | `shadow status` | Show each link's state here, and every per-branch area. |
 | `shadow promote <branch> [--into <new>]` | Move a branch's per-branch files into the accepted paths, or over to a renamed branch. |
