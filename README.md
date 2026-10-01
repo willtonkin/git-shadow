@@ -31,7 +31,7 @@ git-shadow keeps the files at the paths the tools expect, while storing them som
 
 ## Install
 
-Requires bash, git 2.31+ and perl. Tested on macOS; it should run anywhere those are available.
+Requires bash, git 2.31+ and perl. Tested on macOS and Linux.
 
 Optional: GitHub's [`gh`](https://cli.github.com), logged in, so session start and `status` can tell which branches' pull requests were merged or closed (see [Per-branch areas](#per-branch-areas)). Without it, merges are found from local history.
 
