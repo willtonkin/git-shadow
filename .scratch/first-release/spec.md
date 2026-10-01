@@ -171,7 +171,7 @@ The vocabulary used here is defined in the repo's domain glossary. The naming de
 
 ## Out of Scope
 
-- A "not yet" answer for a gone branch area (`keep` / snooze). It stays a documented limitation (issue 05).
+- A "not yet" answer for a gone branch area (`keep` / snooze). Issue 05 is handled by merge detection (`.scratch/merge-detection/spec.md`), after this release; until then it stays a documented limitation.
 - Keeping per-branch instructions current after a branch switch mid-session. It stays a documented limitation, because hooks only run at session start and end (issue 08).
 - An `install-hooks` command that writes agent settings. It's a later idea; this release only fixes the README snippet (issue 09).
 - Attributing session-end changes to branches, or one commit per branch area.
@@ -181,7 +181,7 @@ The vocabulary used here is defined in the repo's domain glossary. The naming de
 
 ## Further Notes
 
-- This spec covers issues 01–03, 06, 07 and 09–21 in this folder. It confirms 04 (licence) and leaves 05 and 08 as limitations. Each issue's own notes can be used as detail, but where they differ, the decisions here win.
+- This spec covers issues 01–03, 06, 07 and 09–21 in this folder. It confirms 04 (licence), leaves 08 as a limitation, and leaves 05 to merge detection. Each issue's own notes can be used as detail, but where they differ, the decisions here win.
 - Suggested order, so later work isn't redone:
   1. test isolation (10), since it protects the developer;
   2. drop's snapshot and scoped commits (11, 17, 06);

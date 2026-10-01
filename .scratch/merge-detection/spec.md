@@ -1,18 +1,19 @@
-# Merge detection for per-branch areas
+# Merge detection for branch areas
 
 Status: ready-for-agent
+Blocked by: first-release
 
-See `CONTEXT.md` (merged branch, gone branch) and `docs/adr/0001-detect-merges-via-gh-with-local-fallback.md`.
+See `CONTEXT.md` (merged, open, closed, gone) and `docs/adr/0001-detect-merges-via-gh-with-local-fallback.md`.
 
 ## Problem
 
-A per-branch area is only offered for promotion once its local branch is deleted. Merged work isn't offered until the branch is cleaned up, and a branch deleted while its PR is still open is reported in every session (#05 in `first-release`).
+A branch area is only offered for promotion once its local branch is deleted. Merged work isn't offered until the branch is cleaned up, and a branch deleted while its PR is still open is reported in every session (#05 in `first-release`).
 
 ## Behaviour
 
 **What counts:** merges into **trunk** only. Merges into other branches don't count; stacked branches still use `promote --into`.
 
-**Which areas:** every per-branch area that has files, whether its branch still exists locally, is gone, or is checked out somewhere. Areas with no files are skipped (and removed, as today, if their branch is gone).
+**Which areas:** every branch area that has files, whether its branch still exists locally, is gone, or is checked out somewhere. Areas with no files are skipped (and removed, as today, if their branch is gone).
 
 **Detection, in order:**
 
@@ -31,7 +32,7 @@ A per-branch area is only offered for promotion once its local branch is deleted
 
 The hooks still never run `promote` or `drop`; the agent asks the user.
 
-**`status`:** per-branch area states gain `merged` and `pr-open`. States combine where needed (`current, merged`). Show where the merge answer came from (`gh` or `ancestry`).
+**`status`:** branch area states gain `merged`, `open` and `closed`. States combine where needed (`current, merged`). Show where the merge answer came from (`gh` or `ancestry`).
 
 **Promoting a merged branch that is still checked out** is allowed. The next `sync` recreates an empty area for it. A file written there after the merge will be offered for promotion again; the user can drop it. A new PR from the same branch reads as open, which clears this.
 

@@ -64,4 +64,16 @@ _Avoid_: delete, discard
 
 **Gone**:
 Describes a branch area whose recorded branch no longer exists locally. A renamed branch leaves its old branch area gone.
-_Avoid_: merged, stale, orphaned
+_Avoid_: stale, orphaned
+
+**Merged**:
+Describes a branch area whose branch's work has reached the trunk, whether or not the branch still exists locally.
+_Avoid_: landed, shipped, done
+
+**Open**:
+Describes a branch area whose branch has an open pull request into the trunk.
+_Avoid_: in review, pr-open, pending
+
+**Closed**:
+Describes a branch area whose branch's pull request into the trunk was closed without merging.
+_Avoid_: abandoned, rejected
