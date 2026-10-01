@@ -4,10 +4,10 @@
 
 **Blocked by:** 22, 23
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] References to a renumbered proposal are rewritten in every text file in the shadow repo, including other branch areas and shared files, not only among the promoted proposals.
-- [ ] The shadow repo's git directory is never searched.
-- [ ] Only whole file names match: promoting `tokens.md` leaves a reference to `session-tokens.md` alone.
-- [ ] The README's Limitations section no longer lists the numbering-reach limitation.
-- [ ] Tests cover a reference from outside the promoted set and a name that shares an ending.
+- [x] References to a renumbered proposal are rewritten in every text file in the shadow repo, including other branch areas and shared files, not only among the promoted proposals.
+- [x] The shadow repo's git directory is never searched.
+- [x] Only whole file names match: promoting `tokens.md` leaves a reference to `session-tokens.md` alone.
+- [x] The README's Limitations section no longer lists the numbering-reach limitation.
+- [x] Tests cover a reference from outside the promoted set and a name that shares an ending.

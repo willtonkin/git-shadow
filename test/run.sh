@@ -199,6 +199,64 @@ test_promote_numbers_files_rewrites_links_and_commits() {
   assert_contains "$(git -C "$SHADOW_REPO" log --oneline)" "promote branch area feat/a to accepted paths"
 }
 
+test_promote_rewrites_references_from_outside_the_promoted_set() {
+  shadow init >/dev/null
+  manifest 'link docs/adr/' 'link .scratch/' 'per-branch docs/adr/ numbered' 'trunk main'
+  shadow sync
+  echo 'see [a](../docs/adr/a.md)' > .scratch/spec.md
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  branch_checkout ../b feat/b
+  echo 'builds on a.md' > ../b/.branch-shadow/docs/adr/b.md
+  git -C "$SHADOW_REPO" add -A && git -C "$SHADOW_REPO" commit -qm setup
+  shadow promote feat/a >/dev/null
+  assert_file docs/adr/0001-a.md
+  assert_contains "$(cat .scratch/spec.md)" "(../docs/adr/0001-a.md)"
+  assert_contains "$(cat ../b/.branch-shadow/docs/adr/b.md)" "builds on 0001-a.md"
+  # The rewrite is part of the promotion, so it's in the promote commit.
+  assert_contains "$(git -C "$SHADOW_REPO" show --stat --format= HEAD)" "branches/feat~b/docs/adr/b.md"
+}
+
+test_promote_leaves_names_that_only_share_an_ending_alone() {
+  shadow init >/dev/null
+  manifest 'link docs/adr/' 'link notes.md' 'per-branch docs/adr/ numbered' 'trunk main'
+  shadow sync
+  echo 'old-tokens.md, tokens.md, session-tokens.md.' > notes.md
+  branch_with_proposal ../a feat/a docs/adr/tokens.md
+  echo s > ../a/.branch-shadow/docs/adr/session-tokens.md
+  shadow promote feat/a >/dev/null
+  # Proposals are numbered in name order: session-tokens.md, then tokens.md.
+  [ "$(cat notes.md)" = 'old-tokens.md, 0002-tokens.md, 0001-session-tokens.md.' ] \
+    || fail "unexpected rewrite: $(cat notes.md)"
+}
+
+test_promote_leaves_a_rewrite_to_a_file_with_pending_changes_uncommitted() {
+  shadow init >/dev/null
+  manifest 'link docs/adr/' 'link notes.md' 'per-branch docs/adr/ numbered' 'trunk main'
+  shadow sync
+  echo notes > notes.md
+  git -C "$SHADOW_REPO" add -A && git -C "$SHADOW_REPO" commit -qm setup
+  echo 'half-written, see a.md' >> notes.md
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  local out; out=$(shadow promote feat/a 2>&1)
+  assert_contains "$(cat notes.md)" "see 0001-a.md"
+  assert_contains "$out" "rewrote references in notes.md but left it uncommitted"
+  assert_pending notes.md
+}
+
+test_promote_leaves_references_to_a_shared_name_alone() {
+  shadow init >/dev/null
+  manifest 'link docs/' 'per-branch docs/adr/ numbered' 'per-branch docs/rfc/ numbered' 'trunk main'
+  shadow sync
+  mkdir docs/adr && echo old > docs/adr/0001-old.md
+  branch_with_proposal ../a feat/a docs/adr/a.md
+  mkdir -p ../a/.branch-shadow/docs/rfc && echo 'see ../adr/a.md' > ../a/.branch-shadow/docs/rfc/a.md
+  local out; out=$(shadow promote feat/a 2>&1)
+  # The two a.md proposals get different new names, so neither rewrite is safe.
+  assert_file docs/adr/0002-a.md
+  assert_contains "$(cat docs/rfc/0001-a.md)" "see ../adr/a.md"
+  assert_contains "$out" "left references to a.md as they were"
+}
+
 test_promote_aborts_on_clash_without_moving_anything() {
   shadow init >/dev/null
   manifest 'link docs/adr/' 'per-branch docs/adr/' 'trunk main'

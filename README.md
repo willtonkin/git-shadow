@@ -113,7 +113,7 @@ checkout on feat/new-auth/
 - **The trunk branch gets no area**: new files there go straight to the accepted path.
 - **A detached HEAD gets no area either.**
 - **When a branch no longer exists locally**, its area is reported at session start, so you can decide what to do with it:
-  - `shadow promote <branch>` moves the files into the accepted paths. With `numbered`, files get the next `NNNN-` prefix, and links between the promoted files are rewritten to match.
+  - `shadow promote <branch>` moves the files into the accepted paths. With `numbered`, files get the next `NNNN-` prefix, and references to them are rewritten to match in every text file in the shadow repo. Only whole file names match, so promoting `tokens.md` leaves `session-tokens.md` alone.
   - `shadow promote <branch> --into <new>` moves the branch area to a renamed branch. If `<new>` has no branch area yet, or one with no proposals (as a session on the renamed branch creates), the old branch area takes its place. If `<new>` already has proposals, the old ones join them, unless a path appears in both: then it refuses and changes nothing, and you resolve it by hand.
   - `shadow drop <branch>` commits the branch area as it stands, then drops it, so its proposals stay in the shadow repo's history.
 - **Areas with no files are removed** without asking.
@@ -157,7 +157,7 @@ Other agents or editors can use the same entry points. Both read and discard std
 - **Tools that refuse to follow symlinks** won't see the files.
 - **A checkout is only linked once something runs `sync` there.** The `SessionStart` hook does this when a session starts; `sync --all` does every worktree at once.
 - **A branch switch mid-session** leaves that session's per-branch instructions out of date until the next session.
-- **Numbering on promote** only applies to files directly inside a `numbered` path, and only rewrites references between the files being promoted.
+- **Numbering on promote** only applies to files directly inside a `numbered` path.
 - **No "not yet" answer:** a gone branch is reported in every session until you promote or drop it.
 
 ## Development
