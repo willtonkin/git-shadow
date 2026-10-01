@@ -81,7 +81,7 @@ autocommit on                           # commit the shadow repo when a session 
 | `git shadow status` | Show each link's state here, and every per-branch area. |
 | `git shadow promote <branch> [--into <new>]` | Move a branch's per-branch files into the accepted paths, or over to a renamed branch. |
 | `git shadow drop <branch>` | Drop a branch's branch area. Its proposals are committed first, so they stay recoverable from the shadow repo's history. |
-| `git shadow decline` | Never offer a shadow repo for the current repo. |
+| `git shadow decline` | Never offer a shadow repo for the current repo. Running `init` there later undoes this. |
 | `git shadow hook-start` / `hook-end` | Entry points for agent session hooks (see below). |
 
 ## Safety
@@ -127,23 +127,23 @@ checkout on feat/new-auth/
 
 ## Agent integration (Claude Code)
 
-Add both hooks to `~/.claude/settings.json`:
+Add both hooks to `~/.claude/settings.json`, using the absolute path of the `git-shadow` you installed (`command -v git-shadow` prints it):
 
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "git-shadow hook-start" }] }],
-    "SessionEnd":   [{ "hooks": [{ "type": "command", "command": "git-shadow hook-end" }] }]
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "/Users/you/.local/bin/git-shadow hook-start" }] }],
+    "SessionEnd":   [{ "hooks": [{ "type": "command", "command": "/Users/you/.local/bin/git-shadow hook-end" }] }]
   }
 }
 ```
 
-Use an absolute path if `git-shadow` isn't on the PATH your hooks run with.
+Hooks often run with a shorter PATH than your shell, so a bare `git-shadow` can fail silently. If you're sure it's on the hooks' PATH, `git-shadow hook-start` works too.
 
 **At session start, `hook-start`:**
 
 - in a repo with a shadow repo:
-  - syncs this checkout, so new worktrees are linked automatically;
+  - syncs this checkout, so new worktrees are linked automatically, and passes any warnings from the sync (skipped paths, adopted files, a missing trunk) into the agent's context;
   - prints the manifest's `context` files and the per-branch instructions into the session;
   - lists any per-branch areas whose branch is gone;
 - in a repo without one, tells the agent to ask you, once, whether to run `init` or `decline`;
@@ -153,7 +153,7 @@ Use an absolute path if `git-shadow` isn't on the PATH your hooks run with.
 
 Hooks can't stop and wait for an answer, so every question goes through the agent: the hook adds a note to the context, and the agent asks you in conversation. The hooks themselves never run `init`, `promote` or `drop`.
 
-Other agents or editors can use the same entry points. Both read and discard stdin, and `hook-start` writes its context to stdout.
+Other agents or editors can use the same entry points. Both read and discard stdin (unless it's a terminal, so running them by hand doesn't hang), and `hook-start` writes its context to stdout.
 
 ## Limitations
 

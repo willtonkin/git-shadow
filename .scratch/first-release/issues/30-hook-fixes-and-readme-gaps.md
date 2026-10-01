@@ -4,10 +4,14 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `hook-start` and `hook-end` drain stdin only when it isn't a terminal. Run from a terminal, they return straight away (checked by hand, not in the suite).
-- [ ] The README's hook snippet shows an absolute path first.
-- [ ] The README says `init` removes the project repo from the declined list.
-- [ ] The README says `hook-start` passes sync warnings into the agent's context.
-- [ ] The test suite passes.
+- [x] `hook-start` and `hook-end` drain stdin only when it isn't a terminal. Run from a terminal, they return straight away (checked by hand, not in the suite).
+- [x] The README's hook snippet shows an absolute path first.
+- [x] The README says `init` removes the project repo from the declined list.
+- [x] The README says `hook-start` passes sync warnings into the agent's context.
+- [x] The test suite passes.
+
+## Comments
+
+Done. Both hooks skip draining stdin when it is a terminal (`[ -t 0 ]`). Checked by hand with `script` on macOS, feeding a pty that never closes: the old binary hung until a 4s alarm killed it, the new one exits 0 for both hooks. The README hook snippet now shows an absolute path, with a bare `git-shadow` as the fallback. The `decline` row says `init` undoes it, and the `hook-start` list says sync warnings reach the agent.

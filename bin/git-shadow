@@ -594,7 +594,7 @@ cmd_decline() {
 }
 
 cmd_hook_start() {
-  cat > /dev/null || true
+  [ -t 0 ] || cat > /dev/null || true  # drain the hook payload, but never wait on a terminal
   git rev-parse --show-toplevel >/dev/null 2>&1 || exit 0
   local key shadow f out top trunk branch p numbered gone area bin
   bin=$(command -v git-shadow 2>/dev/null || echo "$0")
@@ -658,7 +658,7 @@ EOF
 }
 
 cmd_hook_end() {
-  cat > /dev/null || true
+  [ -t 0 ] || cat > /dev/null || true  # drain the hook payload, but never wait on a terminal
   git rev-parse --show-toplevel >/dev/null 2>&1 || exit 0
   local shadow
   shadow=$(find_shadow "$(repo_key)") || exit 0
