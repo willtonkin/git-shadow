@@ -51,12 +51,12 @@ A file in a branch area that isn't yet shared with every checkout.
 _Avoid_: draft, per-branch file
 
 **Accepted path**:
-The shared location a proposal goes to when it's promoted.
+The shared location, visible from every checkout, that a proposal is promoted to when it stops being a proposal.
 _Avoid_: shared path, main path
 
 **Promote**:
-To move a branch area's proposals into their accepted paths.
-_Avoid_: accept, merge, publish
+To move a branch area's proposals onward: to their accepted paths, or into another branch's branch area, usually after a rename.
+_Avoid_: accept, merge, publish, move, rename
 
 **Drop**:
 To discard a branch area and its proposals.
