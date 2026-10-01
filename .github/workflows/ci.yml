@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck --version && shellcheck bin/git-shadow test/run.sh
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest  # a modern bash
+            path: ""
+          - os: macos-latest   # /bin/bash is bash 3.2; put it ahead of any Homebrew bash
+            path: /bin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the test suite
+        run: |
+          if [ -n "${{ matrix.path }}" ]; then export PATH="${{ matrix.path }}:$PATH"; fi
+          bash --version | head -n 1
+          git --version
+          test/run.sh

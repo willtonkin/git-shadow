@@ -172,6 +172,8 @@ test/run.sh test_drop_keeps_branch_area_in_history
 
 Each test runs in a fresh temp directory with an isolated git config and `SHADOW_HOME`.
 
+CI runs `shellcheck bin/git-shadow test/run.sh`, then the suite on Ubuntu (a modern bash) and macOS (bash 3.2), for every push and pull request.
+
 ## License
 
 MIT

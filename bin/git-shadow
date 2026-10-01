@@ -21,6 +21,7 @@ set -euo pipefail
 SHADOW_HOME="${SHADOW_HOME:-$HOME/shadow}"
 DECLINED="$SHADOW_HOME/.declined"
 BRANCH_LINK=.branch-shadow
+# shellcheck disable=SC2016  # the backticks are literal text
 BEGIN_MARK='# >>> shadow (managed by `shadow sync`; edit the manifest instead)'
 END_MARK='# <<< shadow'
 
@@ -98,9 +99,11 @@ is_declined() {
 # trunk_branch <shadow-dir>: the manifest's trunk (the last trunk line wins), or nothing
 trunk_branch() { manifest_values "$1" trunk | tail -n 1; }
 
+# shellcheck disable=SC2016  # the backticks are literal text
 NO_TRUNK_WARNING='no trunk set, so branch areas are off until you add a `trunk <branch>` line to the manifest'
 
-branch_slug() { printf '%s\n' "${1//\//~}"; }
+# The ~ goes through a variable: bash 5 would tilde-expand it to $HOME in place.
+branch_slug() { local tilde='~'; printf '%s\n' "${1//\//$tilde}"; }
 
 # branch_area <shadow-dir> <branch>: the branch's branch area (which may not exist yet)
 branch_area() { printf '%s/branches/%s\n' "$1" "$(branch_slug "$2")"; }
@@ -459,6 +462,7 @@ replace_branch_area() {
   # Write the new .branch record before anything moves, so a failure leaves
   # the source as it was. A fresh file, not an in-place edit: sed -i isn't portable.
   record=$(mktemp "$(dirname "$src")/.branch.XXXXXX")
+  # shellcheck disable=SC2064  # expand now: the local is gone by the time EXIT fires
   trap "rm -f '$record'" EXIT
   { printf 'name    %s\n' "$into"; awk '$1 != "name"' "$src/.branch" 2>/dev/null || true; } > "$record"
   rm -rf "$dst"
@@ -518,6 +522,7 @@ promote_to_accepted() {
   # Plan every move first (relative source -> relative target), so a clash
   # aborts before anything is touched.
   plan=$(mktemp)
+  # shellcheck disable=SC2064  # expand now: the local is gone by the time EXIT fires
   trap "rm -f '$plan'" EXIT
   while read -r rel; do
     target=$rel

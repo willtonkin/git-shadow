@@ -473,7 +473,10 @@ test_promote_into_leaves_unrelated_changes_uncommitted() {
 }
 
 tests=("$@")
-[ ${#tests[@]} -gt 0 ] || tests=($(declare -F | awk '$3 ~ /^test_/ { print $3 }'))
+# A read loop, not mapfile: macOS's bash 3.2 doesn't have it.
+if [ ${#tests[@]} = 0 ]; then
+  while read -r t; do tests+=("$t"); done < <(declare -F | awk '$3 ~ /^test_/ { print $3 }')
+fi
 for t in "${tests[@]}"; do
   # Not under `if`: errexit is ignored there, and a failed assert must stop the test.
   set +e
