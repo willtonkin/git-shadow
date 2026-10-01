@@ -9,7 +9,7 @@
 #                                 checkout through .branch-shadow/<path>; `numbered` gives them the
 #                                 next NNNN- prefix when the branch is promoted
 #   trunk      <branch>           branch whose new files go straight to the accepted paths; it
-#                                 gets no per-branch area. `init` writes it; with none, branch
+#                                 gets no branch area. `init` writes it; with none, branch
 #                                 areas are off
 #   context    <file>             file (relative to the shadow repo) printed into agent context at session start
 #   autocommit on                 commit the shadow repo when an agent session ends
@@ -307,19 +307,21 @@ commit_session_end() {
 
 cmd_init() {
   git rev-parse --show-toplevel >/dev/null 2>&1 || die "not inside a git checkout"
-  local key name="" shadow trunk top p links=()
+  local key name="" shadow trunk top p links=() usage="usage: git shadow init [name] [--link <path>]..."
   top=$(git rev-parse --show-toplevel)
   while [ $# -gt 0 ]; do
     case $1 in
       --link)
-        [ -n "${2:-}" ] || die "usage: git shadow init [name] [--link <path>]..."
+        [ -n "${2:-}" ] || die "$usage"
         # Paths are relative to the checkout's root. A directory gets the trailing / that marks it.
         p=${2#./}
-        case $p in /*|..|../*|*/../*|*/..) die "--link $2: give a path inside the checkout" ;; esac
+        case ${p%/} in
+          ""|.|..|/*|../*|*/../*|*/..|.git|.git/*) die "--link $2: give a path inside the checkout, outside .git" ;;
+        esac
         if [ -d "$top/$p" ] && [ ! -L "$top/$p" ]; then p="${p%/}/"; fi
         links+=("$p"); shift 2 ;;
-      -*) die "usage: git shadow init [name] [--link <path>]..." ;;
-      *) [ -z "$name" ] || die "usage: git shadow init [name] [--link <path>]..."; name=$1; shift ;;
+      -*) die "$usage" ;;
+      *) [ -z "$name" ] || die "$usage"; name=$1; shift ;;
     esac
   done
   key=$(repo_key)
@@ -361,7 +363,7 @@ EOF
   fi
   sync_checkout "$top" "$shadow"
   if [ ${#links[@]} -gt 0 ]; then
-    echo "created $shadow and linked those paths here; run \`git shadow sync --all\` to link every other worktree"
+    echo "created $shadow and linked those paths here; run \`git shadow sync --all\` to link every other checkout"
   else
     echo "created $shadow; add link lines to $shadow/.shadow, then run \`git shadow sync --all\`"
   fi
@@ -598,8 +600,11 @@ cmd_decline() {
   echo "won't offer a shadow repo for $(repo_key) again"
 }
 
+# drain_hook_payload: read and discard the hook's stdin, but never wait on a terminal
+drain_hook_payload() { [ -t 0 ] || cat > /dev/null || true; }
+
 cmd_hook_start() {
-  [ -t 0 ] || cat > /dev/null || true  # drain the hook payload, but never wait on a terminal
+  drain_hook_payload
   git rev-parse --show-toplevel >/dev/null 2>&1 || exit 0
   local key shadow f out top trunk branch p numbered gone area bin
   bin=$(command -v git-shadow 2>/dev/null || echo "$0")
@@ -663,7 +668,7 @@ EOF
 }
 
 cmd_hook_end() {
-  [ -t 0 ] || cat > /dev/null || true  # drain the hook payload, but never wait on a terminal
+  drain_hook_payload
   git rev-parse --show-toplevel >/dev/null 2>&1 || exit 0
   local shadow
   shadow=$(find_shadow "$(repo_key)") || exit 0

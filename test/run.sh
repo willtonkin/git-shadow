@@ -117,6 +117,15 @@ test_init_link_adopts_files_from_the_checkout_it_runs_in() {
   assert_clean
 }
 
+test_init_link_refuses_paths_it_cant_link() {
+  local p out
+  for p in . ./ .git .git/hooks /etc/x ../x a/../../x; do
+    out=$(shadow init --link "$p" 2>&1) && fail "expected init --link $p to fail"
+    assert_contains "$out" "give a path inside the checkout, outside .git"
+    assert_missing "$SHADOW_REPO"
+  done
+}
+
 test_init_link_takes_a_name_too() {
   echo mine > AGENTS.md
   shadow init mine --link AGENTS.md >/dev/null 2>&1

@@ -47,10 +47,10 @@ Shadow repos live in `~/shadow/` by default. Set `SHADOW_HOME` to change that.
 ```sh
 cd ~/code/my-app                  # the checkout that already has the files
 git shadow init --link AGENTS.md --link .scratch/
-git shadow sync --all             # link into every other worktree of this repo
+git shadow sync --all             # link into every other checkout of this repo
 ```
 
-`init` creates `~/shadow/my-app/` with a manifest, writes a `link` line for each `--link` path (relative to the checkout's root; a directory gets its trailing `/`), and syncs the checkout it runs in. Any untracked files already at those paths are moved into the shadow repo and replaced with a link, so the copies in this checkout are the ones kept. To add more paths later, edit the manifest's `link` lines and run `sync` again.
+`init` creates `~/shadow/my-app/` with a manifest, writes a `link` line for each `--link` path (relative to the checkout's root, outside `.git`; a directory gets its trailing `/`), and syncs the checkout it runs in. Any untracked files already at those paths are moved into the shadow repo and replaced with a link, so the copies in this checkout are the ones kept. To add more paths later, edit the manifest's `link` lines and run `sync` again.
 
 ## The manifest
 
@@ -68,7 +68,7 @@ autocommit on                           # commit the shadow repo when a session 
 
 **`match`** is the normalised `origin` URL, so every clone and worktree of the repo is recognised, wherever it lives. A repo with no remote is matched by path instead, as `path:/abs/path/to/.git`.
 
-**`trunk`** names the trunk, which gets no branch area. `init` detects it from `origin/HEAD`, then git's `init.defaultBranch`, then whichever of `main` or `master` exists, and writes it here. If none of those finds it, `init` warns and leaves the line out. With no `trunk` line, branch areas are off: `sync` creates none, and `sync` and session start say so until you add one.
+**`trunk`** names the trunk, which gets no branch area. `init` detects it from `origin/HEAD`, then git's `init.defaultBranch`, then `main`, then `master`, counting a branch only if it exists locally (`origin/HEAD` aside), and writes it here. If none of those finds it, `init` warns and leaves the line out. With no `trunk` line, branch areas are off: `sync` creates none, and `sync` and session start say so until you add one.
 
 **`link`** is the only list. The same entries drive the symlinks and the exclude block, so the two can't drift apart. Remove a line and the next `sync` removes that link, and any folders the link leaves empty.
 

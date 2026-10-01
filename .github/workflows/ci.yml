@@ -12,6 +12,7 @@ jobs:
       - run: shellcheck --version && shellcheck bin/git-shadow test/run.sh
 
   test:
+    needs: shellcheck
     strategy:
       fail-fast: false
       matrix:
