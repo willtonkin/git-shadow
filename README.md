@@ -92,7 +92,7 @@ autocommit on                           # commit the shadow repo when a session 
 | `git shadow init [name] [--link <path>]...` | Create a shadow repo for the current repo and attach this checkout, linking and adopting each `--link` path. By default it's named after the remote's repo, or the main checkout's folder if there's no remote. |
 | `git shadow sync [--all]` | Bring this checkout, or every worktree, in line with the manifest. Repeat runs are harmless. |
 | `git shadow onboard` | Print this repo's state and a prompt that has an agent move your personal files into a shadow repo (see [Quick start](#quick-start)). |
-| `git shadow status` | Show each link's state here, and every per-branch area: whether its branch is current, exists or is gone, and whether it's merged, open or closed. |
+| `git shadow status` | Show each link's state here (`linked`, `dangling (target missing)` with any branch area that holds the file, `missing` or `conflict (real file)`), and every branch area: whether its branch is current, exists or is gone, and whether it's merged, open or closed. |
 | `git shadow promote <branch> [--into <new>]` | Move a branch's per-branch files into the accepted paths, or over to a renamed branch. |
 | `git shadow drop <branch>` | Drop a branch's branch area. Its proposals are committed first, so they stay recoverable from the shadow repo's history. |
 | `git shadow decline` | Never offer a shadow repo for the current repo. Running `init` there later undoes this. |

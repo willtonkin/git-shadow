@@ -502,6 +502,51 @@ test_a_gh_that_hangs_falls_back_to_ancestry() {
   assert_contains "$out" "merged into the trunk (main)"
 }
 
+test_status_flags_links_whose_target_is_missing() {
+  shadow init >/dev/null
+  manifest 'link notes.md' 'link CONTEXT.md' 'link .scratch/'
+  shadow sync
+  echo n > notes.md
+  local out; out=$(shadow status)
+  assert_contains "$out" "$(printf '  %-40s linked' notes.md)"
+  assert_contains "$out" "$(printf '  %-40s linked' .scratch)"
+  assert_contains "$out" "$(printf '  %-40s dangling (target missing)' CONTEXT.md)"
+}
+
+test_status_says_which_branch_area_holds_a_dangling_links_file() {
+  shadow init >/dev/null
+  manifest 'link docs/notes/TODO.md' 'per-branch docs/notes/'
+  shadow sync
+  branch_with_proposal ../a feat/a docs/notes/TODO.md
+  local out; out=$(shadow status)
+  assert_contains "$out" "$(printf '  %-40s dangling (target missing)' docs/notes/TODO.md)"
+  assert_contains "$out" "branch area feat/a has a proposal at this path; it reaches here when that branch is promoted"
+}
+
+test_status_gives_no_branch_area_hint_without_a_proposal_there() {
+  shadow init >/dev/null
+  manifest 'link docs/notes/TODO.md' 'link docs/adr/' 'per-branch docs/notes/' 'per-branch docs/adr/'
+  shadow sync
+  branch_checkout ../a feat/a  # its branch area gets empty docs/notes/ and docs/adr/ folders
+  rmdir "$SHADOW_REPO/docs/adr"
+  local out; out=$(shadow status)
+  assert_contains "$out" "$(printf '  %-40s dangling (target missing)' docs/adr)"
+  assert_not_contains "$out" "branch area feat/a"
+}
+
+test_status_says_a_numbered_proposal_lands_elsewhere() {
+  shadow init >/dev/null
+  manifest 'link docs/adr/x.md' 'per-branch docs/adr/ numbered'
+  shadow sync
+  branch_with_proposal ../a feat/a docs/adr/x.md
+  assert_contains "$(shadow status)" "branch area feat/a has a proposal at this path, but promoting that branch numbers it, so it lands elsewhere"
+}
+
+test_onboard_flags_links_whose_target_is_missing() {
+  shadow init --link CONTEXT.md >/dev/null
+  assert_contains "$(shadow onboard)" "$(printf '  %-40s dangling (target missing)' CONTEXT.md)"
+}
+
 test_status_shows_pr_states_and_where_they_came_from() {
   shadow init >/dev/null
   manifest 'per-branch docs/adr/'

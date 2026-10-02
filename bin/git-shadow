@@ -79,6 +79,19 @@ per_branch_paths() {
   awk '$1 == "per-branch" { d = $2; sub("/$", "", d); print d, ($3 == "numbered" ? "numbered" : "-") }' "$1/.shadow"
 }
 
+# numbered_dir <shadow-dir> <path>: if promoting a proposal at <path> gives it the
+# next NNNN- prefix, print the numbered per-branch path it sits directly in
+numbered_dir() {
+  local dir numbered base
+  while read -r dir numbered; do
+    [ "$numbered" = numbered ] || continue
+    case $2 in "$dir"/*) ;; *) continue ;; esac
+    base=${2#"$dir"/}
+    if [[ $base != */* ]] && ! [[ $base =~ ^[0-9]{4}- ]]; then echo "$dir"; return 0; fi
+  done < <(per_branch_paths "$1")
+  return 1
+}
+
 # has_per_branch <shadow-dir>: does the manifest declare any per-branch paths?
 has_per_branch() { [ -n "$(per_branch_paths "$1")" ]; }
 
@@ -467,17 +480,27 @@ cmd_sync() {
   fi
 }
 
-# print_link_states <checkout-top> <shadow-dir>: each link's state in the checkout
+# print_link_states <checkout-top> <shadow-dir>: each link's state in the checkout.
+# Under a dangling link, names each branch area with a proposal at its path.
 print_link_states() {
-  local p name state
+  local p name state area
   while read -r p; do
     name=${p%/}
-    if is_our_link "$1/$name" "$2/$name"; then
-      state=linked
+    if ! is_our_link "$1/$name" "$2/$name"; then
+      if [ -e "$1/$name" ]; then state="conflict (real file)"; else state=missing; fi
     elif [ -e "$1/$name" ]; then
-      state="conflict (real file)"
+      state=linked
     else
-      state=missing
+      printf '  %-40s %s\n' "$name" "dangling (target missing)"
+      while read -r area; do
+        [ -f "$area/$name" ] || continue
+        if numbered_dir "$2" "$name" >/dev/null; then
+          printf '    branch area %s has a proposal at this path, but promoting that branch numbers it, so it lands elsewhere\n' "$(branch_name "$area")"
+        else
+          printf '    branch area %s has a proposal at this path; it reaches here when that branch is promoted\n' "$(branch_name "$area")"
+        fi
+      done < <(branch_areas "$2")
+      continue
     fi
     printf '  %-40s %s\n' "$name" "$state"
   done < <(manifest_values "$2" link)
@@ -610,7 +633,7 @@ rewrite_references() {
 
 # promote_to_accepted <shadow-dir> <branch>: move a branch area's proposals to their accepted paths
 promote_to_accepted() {
-  local shadow=$1 name=$2 src plan rel target dir numbered n base f touched pending
+  local shadow=$1 name=$2 src plan rel target dir n f touched pending
   src=$(branch_area "$shadow" "$name")
   touched=("$src")
 
@@ -621,15 +644,11 @@ promote_to_accepted() {
   trap "rm -f '$plan'" EXIT
   while read -r rel; do
     target=$rel
-    while read -r dir numbered; do
-      case $rel in "$dir"/*) ;; *) continue ;; esac
-      base=${rel#"$dir"/}
-      if [ "$numbered" = numbered ] && [[ $base != */* ]] && ! [[ $base =~ ^[0-9]{4}- ]]; then
-        n=$( { ls "$shadow/$dir" 2>/dev/null; awk -F'\t' '{ print $2 }' "$plan" | sed -n "s#^$dir/##p"; } \
-          | grep -oE '^[0-9]{4}' | sort -n | tail -1 || true)
-        target="$dir/$(printf '%04d' $((10#${n:-0} + 1)))-$base"
-      fi
-    done < <(per_branch_paths "$shadow")
+    if dir=$(numbered_dir "$shadow" "$rel"); then
+      n=$( { ls "$shadow/$dir" 2>/dev/null; awk -F'\t' '{ print $2 }' "$plan" | sed -n "s#^$dir/##p"; } \
+        | grep -oE '^[0-9]{4}' | sort -n | tail -1 || true)
+      target="$dir/$(printf '%04d' $((10#${n:-0} + 1)))-${rel#"$dir"/}"
+    fi
     [ -e "$shadow/$target" ] && die "promoting $rel would overwrite $target; resolve by hand"
     printf '%s\t%s\n' "$rel" "$target" >> "$plan"
   done < <(proposals "$src")
