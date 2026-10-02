@@ -36,6 +36,9 @@ usage: git shadow <command>   (or git-shadow <command>)
                                      linking each <path> and adopting the files already there
   sync [--all]                       bring this checkout (or every worktree) in line with the manifest
   status                             show links in this checkout and every branch's per-branch area
+  onboard                            print this repo's state and a prompt that has an agent move your
+                                     personal files into a shadow repo; paste it to your agent, or let
+                                     the agent run it
   promote <branch> [--into <branch>] move a branch's per-branch files into the accepted files,
                                      or (--into) over to a renamed branch
   drop <branch>                      delete a branch's per-branch files
@@ -74,6 +77,19 @@ manifest_values() {
 # per_branch_paths <shadow-dir>: print "<path> <numbered|->" per per-branch line
 per_branch_paths() {
   awk '$1 == "per-branch" { d = $2; sub("/$", "", d); print d, ($3 == "numbered" ? "numbered" : "-") }' "$1/.shadow"
+}
+
+# numbered_dir <shadow-dir> <path>: if promoting a proposal at <path> gives it the
+# next NNNN- prefix, print the numbered per-branch path it sits directly in
+numbered_dir() {
+  local dir numbered base
+  while read -r dir numbered; do
+    [ "$numbered" = numbered ] || continue
+    case $2 in "$dir"/*) ;; *) continue ;; esac
+    base=${2#"$dir"/}
+    if [[ $base != */* ]] && ! [[ $base =~ ^[0-9]{4}- ]]; then echo "$dir"; return 0; fi
+  done < <(per_branch_paths "$1")
+  return 1
 }
 
 # has_per_branch <shadow-dir>: does the manifest declare any per-branch paths?
@@ -464,23 +480,39 @@ cmd_sync() {
   fi
 }
 
+# print_link_states <checkout-top> <shadow-dir>: each link's state in the checkout.
+# Under a dangling link, names each branch area with a proposal at its path.
+print_link_states() {
+  local p name state area
+  while read -r p; do
+    name=${p%/}
+    if ! is_our_link "$1/$name" "$2/$name"; then
+      if [ -e "$1/$name" ]; then state="conflict (real file)"; else state=missing; fi
+    elif [ -e "$1/$name" ]; then
+      state=linked
+    else
+      printf '  %-40s %s\n' "$name" "dangling (target missing)"
+      while read -r area; do
+        [ -f "$area/$name" ] || continue
+        if numbered_dir "$2" "$name" >/dev/null; then
+          printf '    branch area %s has a proposal at this path, but promoting that branch numbers it, so it lands elsewhere\n' "$(branch_name "$area")"
+        else
+          printf '    branch area %s has a proposal at this path; it reaches here when that branch is promoted\n' "$(branch_name "$area")"
+        fi
+      done < <(branch_areas "$2")
+      continue
+    fi
+    printf '  %-40s %s\n' "$name" "$state"
+  done < <(manifest_values "$2" link)
+}
+
 cmd_status() {
-  local shadow top p name state area branch answers answer
+  local shadow top name state area branch answers answer
   shadow=$(require_shadow)
   top=$(git rev-parse --show-toplevel)
   echo "repo:   $(repo_key)"
   echo "shadow: $shadow"
-  while read -r p; do
-    name=${p%/}
-    if is_our_link "$top/$name" "$shadow/$name"; then
-      state=linked
-    elif [ -e "$top/$name" ]; then
-      state="conflict (real file)"
-    else
-      state=missing
-    fi
-    printf '  %-40s %s\n' "$name" "$state"
-  done < <(manifest_values "$shadow" link)
+  print_link_states "$top" "$shadow"
   has_per_branch "$shadow" || return 0
   if [ -L "$top/$BRANCH_LINK" ]; then
     printf '  %-40s -> %s\n' "$BRANCH_LINK" "$(readlink "$top/$BRANCH_LINK")"
@@ -601,7 +633,7 @@ rewrite_references() {
 
 # promote_to_accepted <shadow-dir> <branch>: move a branch area's proposals to their accepted paths
 promote_to_accepted() {
-  local shadow=$1 name=$2 src plan rel target dir numbered n base f touched pending
+  local shadow=$1 name=$2 src plan rel target dir n f touched pending
   src=$(branch_area "$shadow" "$name")
   touched=("$src")
 
@@ -612,15 +644,11 @@ promote_to_accepted() {
   trap "rm -f '$plan'" EXIT
   while read -r rel; do
     target=$rel
-    while read -r dir numbered; do
-      case $rel in "$dir"/*) ;; *) continue ;; esac
-      base=${rel#"$dir"/}
-      if [ "$numbered" = numbered ] && [[ $base != */* ]] && ! [[ $base =~ ^[0-9]{4}- ]]; then
-        n=$( { ls "$shadow/$dir" 2>/dev/null; awk -F'\t' '{ print $2 }' "$plan" | sed -n "s#^$dir/##p"; } \
-          | grep -oE '^[0-9]{4}' | sort -n | tail -1 || true)
-        target="$dir/$(printf '%04d' $((10#${n:-0} + 1)))-$base"
-      fi
-    done < <(per_branch_paths "$shadow")
+    if dir=$(numbered_dir "$shadow" "$rel"); then
+      n=$( { ls "$shadow/$dir" 2>/dev/null; awk -F'\t' '{ print $2 }' "$plan" | sed -n "s#^$dir/##p"; } \
+        | grep -oE '^[0-9]{4}' | sort -n | tail -1 || true)
+      target="$dir/$(printf '%04d' $((10#${n:-0} + 1)))-${rel#"$dir"/}"
+    fi
     [ -e "$shadow/$target" ] && die "promoting $rel would overwrite $target; resolve by hand"
     printf '%s\t%s\n' "$rel" "$target" >> "$plan"
   done < <(proposals "$src")
@@ -677,6 +705,118 @@ cmd_drop() {
   echo "dropped per-branch files from $name (recoverable from the shadow repo's git history)"
 }
 
+# What onboard lists as candidate files, tracked or not, at any depth: files by
+# name, and folders by path. .claude/ is left out on purpose: teams often commit
+# .claude/settings.json.
+ONBOARD_FILES="AGENTS.md CLAUDE.md CLAUDE.local.md GEMINI.md CONTEXT.md CONTEXT-MAP.md GLOSSARY.md .cursorrules"
+ONBOARD_DIRS="adr docs/agents .scratch .cursor/rules"
+
+# candidate_paths <kind>: for each path on stdin that is or sits inside a
+# candidate, print "<kind>\t<candidate>", a folder with its trailing /
+candidate_paths() {
+  awk -v kind="$1" -v files="$ONBOARD_FILES" -v dirs="$ONBOARD_DIRS" '
+    BEGIN { n = split(files, f, " "); for (i = 1; i <= n; i++) isfile[f[i]] = 1; m = split(dirs, d, " ") }
+    {
+      p = $0; sub("/$", "", p)
+      for (i = 1; i <= m; i++) {
+        # Where d[i] starts in p, as a whole run of path components
+        j = index("/" p "/", "/" d[i] "/")
+        if (j) { printf "%s\t%s/\n", kind, substr(p, 1, j - 1 + length(d[i])); next }
+      }
+      b = p; sub(".*/", "", b)
+      if (b in isfile) printf "%s\t%s\n", kind, p
+    }'
+}
+
+# not_our_links <checkout-top>: drop paths on stdin that are links into a shadow repo
+not_our_links() {
+  local p
+  while IFS= read -r p; do
+    if [ -L "$1/${p%/}" ]; then
+      case $(readlink "$1/${p%/}") in "$SHADOW_HOME"/*) continue ;; esac
+    fi
+    printf '%s\n' "$p"
+  done
+}
+
+# print_candidates <checkout-top>: each candidate file and whether it's tracked.
+# Ignored folders are listed whole, so a node_modules/ costs one line.
+print_candidates() {
+  {
+    git -C "$1" ls-files -z | tr '\0' '\n' | candidate_paths tracked
+    git -C "$1" ls-files -z --others --exclude-standard | tr '\0' '\n' \
+      | not_our_links "$1" | candidate_paths untracked
+    git -C "$1" ls-files -z --others --ignored --exclude-standard --directory | tr '\0' '\n' \
+      | not_our_links "$1" | candidate_paths "untracked, ignored"
+  } | awk -F'\t' '
+    !seen[$0]++ { kinds[$2] = ($2 in kinds) ? kinds[$2] ", " $1 : $1 }
+    END { for (p in kinds) printf "  %-40s %s\n", p, kinds[p] }
+  ' | sort
+}
+
+# hook_installed_in <checkout-top> <hook>: the first Claude Code settings file
+# that runs `git-shadow <hook>`, if any
+hook_installed_in() {
+  local f
+  for f in "$HOME/.claude/settings.json" "$1/.claude/settings.json" "$1/.claude/settings.local.json"; do
+    if [ -f "$f" ] && grep -qF "git-shadow $2" "$f"; then
+      case $f in "$1"/*) echo "${f#"$1"/}" ;; *) echo "~${f#"$HOME"}" ;; esac
+      return 0
+    fi
+  done
+  return 1
+}
+
+# onboard_prompt: where the onboarding prompt is, next to the real git-shadow
+# (resolving the symlink it's usually installed through)
+onboard_prompt() {
+  local real
+  real=$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$0")
+  printf '%s/prompts/onboard.md\n' "$(dirname "$(dirname "$real")")"
+}
+
+cmd_onboard() {
+  git rev-parse --show-toplevel >/dev/null 2>&1 || die "not inside a git checkout"
+  local key top shadow trunk prompt hook where candidates
+  prompt=$(onboard_prompt)
+  [ -f "$prompt" ] || die "can't find the onboarding prompt at $prompt; install git-shadow by symlinking bin/git-shadow from its repo"
+  key=$(repo_key)
+  top=$(git rev-parse --show-toplevel)
+  echo "repo:     $key"
+  if shadow=$(find_shadow "$key"); then
+    echo "shadow:   $shadow"
+    trunk=$(trunk_branch "$shadow")
+    if [ -n "$trunk" ]; then echo "trunk:    $trunk (from the manifest)"; else echo "trunk:    none set in the manifest"; fi
+  else
+    if is_declined "$key"; then
+      echo "declined: you ran \`git shadow decline\` for this repo. To onboard it anyway, delete"
+      echo "          the line \`$key\` from $DECLINED and run this again."
+      return 0
+    fi
+    echo "shadow:   none yet; \`git shadow init\` creates one"
+    trunk=$(detect_trunk)
+    if [ -n "$trunk" ]; then echo "trunk:    $trunk (detected; init will record it)"; else echo "trunk:    none found"; fi
+  fi
+  echo "Claude Code hooks:"
+  for hook in hook-start hook-end; do
+    if where=$(hook_installed_in "$top" "$hook"); then where="installed ($where)"; else where="not found"; fi
+    printf '  %-10s  %s\n' "$hook" "$where"
+  done
+  if [ -n "$shadow" ]; then
+    echo "manifest ($shadow/.shadow):"
+    grep -v '^[[:space:]]*#' "$shadow/.shadow" | grep -v '^[[:space:]]*$' | sed 's/^/  /' || true
+    echo "links in this checkout:"
+    print_link_states "$top" "$shadow"
+  fi
+  echo "candidate files:"
+  candidates=$(print_candidates "$top")
+  printf '%s\n' "${candidates:-  none found}"
+  echo
+  echo "---"
+  # Skip the prompt file's leading comment, which is for whoever edits it.
+  awk 'NR == 1 && /^<!--/ { c = 1 } c { if (/-->/) c = 0; next } 1' "$prompt"
+}
+
 cmd_decline() {
   git rev-parse --show-toplevel >/dev/null 2>&1 || die "not inside a git checkout"
   mkdir -p "$SHADOW_HOME"
@@ -697,8 +837,9 @@ cmd_hook_start() {
     is_declined "$key" && exit 0
     cat <<EOF
 git-shadow: this repo ($key) has no shadow repo for personal, untracked files.
-At a natural pause, ask the user once whether to create one (\`$bin init\`)
-or never be asked again for this repo (\`$bin decline\`). Don't run either without their answer.
+At a natural pause, ask the user once whether to set one up or never be asked again for this
+repo (\`$bin decline\`). If they want one, run \`$bin onboard\` and follow what it prints.
+Don't run either without their answer.
 EOF
     exit 0
   fi
@@ -802,6 +943,7 @@ case "${1:-}" in
   init) shift; cmd_init "$@" ;;
   sync) shift; cmd_sync "$@" ;;
   status) cmd_status ;;
+  onboard) cmd_onboard ;;
   promote) shift; cmd_promote "$@" ;;
   drop) shift; cmd_drop "$@" ;;
   decline) cmd_decline ;;

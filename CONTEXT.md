@@ -37,6 +37,10 @@ _Avoid_: import, capture
 **Decline**:
 To record that a project repo should never be offered a shadow repo.
 
+**Onboard**:
+To bring a project repo under a shadow repo, moving its existing personal files in and leaving the project repo free of them.
+_Avoid_: migrate, set up
+
 ## Per-branch files
 
 **Branch area**:
@@ -53,6 +57,14 @@ _Avoid_: draft, per-branch file
 **Accepted path**:
 The shared location, visible from every checkout, that a proposal is promoted to when it stops being a proposal.
 _Avoid_: shared path, main path
+
+**Record**:
+A file meant to outlive the branch that wrote it, such as an ADR, a glossary or a runbook. On a branch, a new record is a proposal in the branch area, and it reaches its accepted path when the branch is promoted.
+_Avoid_: promotable file, durable state
+
+**Working file**:
+A file that belongs to a piece of work rather than a branch, such as a spec, an issue or scratch notes. It lives at a link, never in a branch area, and is closed out by hand when the work is done.
+_Avoid_: working state, scratch file
 
 **Promote**:
 To move a branch area's proposals onward: to their accepted paths, or into another branch's branch area, usually after a rename.

@@ -194,9 +194,78 @@ test_init_without_a_trunk_warns_and_branch_areas_stay_off() {
 }
 
 test_unknown_repo_asks_once_then_respects_decline() {
-  assert_contains "$(echo '{}' | shadow hook-start)" "has no shadow repo"
+  local out; out=$(echo '{}' | shadow hook-start)
+  assert_contains "$out" "has no shadow repo"
+  assert_contains "$out" "onboard"
   shadow decline >/dev/null
   [ -z "$(echo '{}' | shadow hook-start)" ] || fail "expected no output after decline"
+}
+
+test_onboard_without_a_shadow_repo_prints_state_then_prompt() {
+  local out; out=$(shadow onboard)
+  assert_contains "$out" "repo:     github.com/acme/$PROJECT"
+  assert_contains "$out" "shadow:   none yet"
+  assert_contains "$out" "trunk:    main (detected; init will record it)"
+  assert_contains "$out" "# Onboard this repository onto git-shadow"
+}
+
+test_onboard_in_a_declined_repo_says_how_to_undo_it_and_stops() {
+  shadow decline >/dev/null
+  local out; out=$(shadow onboard)
+  assert_contains "$out" "declined"
+  assert_contains "$out" "$SHADOW_HOME/.declined"
+  assert_not_contains "$out" "# Onboard this repository"
+}
+
+test_onboard_shows_the_manifest_and_links_this_checkout_lacks() {
+  shadow init >/dev/null
+  manifest 'link notes.md'
+  git worktree add -q ../b
+  local out; out=$(cd ../b && shadow onboard)
+  assert_contains "$out" "shadow:   $SHADOW_REPO"
+  assert_contains "$out" "trunk:    main (from the manifest)"
+  assert_contains "$out" "link notes.md"
+  assert_contains "$out" "$(printf '  %-40s missing' notes.md)"
+}
+
+test_onboard_lists_candidate_files_tracked_or_not() {
+  mkdir -p docs/adr pkg .claude .scratch/feat
+  echo a > AGENTS.md; echo s > .claude/settings.json; echo n > pkg/node.js
+  git add AGENTS.md .claude pkg && git commit -qm files
+  echo d > docs/adr/0001-x.md; echo c > pkg/CONTEXT.md; echo s > .scratch/feat/spec.md
+  echo .scratch/ > .gitignore  # ignored files are often exactly the personal ones
+  shadow init --link CLAUDE.local.md >/dev/null
+  echo l > CLAUDE.local.md  # through the link, so already in the shadow repo
+  local out; out=$(shadow onboard)
+  assert_contains "$out" "$(printf '  %-40s tracked' AGENTS.md)"
+  assert_contains "$out" "$(printf '  %-40s untracked' docs/adr/)"
+  assert_contains "$out" "$(printf '  %-40s untracked' pkg/CONTEXT.md)"
+  assert_contains "$out" "$(printf '  %-40s untracked' .scratch/)"
+  assert_not_contains "$out" ".claude/"
+  assert_not_contains "$out" "pkg/node.js"
+  assert_not_contains "$out" "$(printf '  %-40s untracked' CLAUDE.local.md)"
+}
+
+test_onboard_reports_claude_code_hooks() {
+  assert_contains "$(shadow onboard)" "hook-start  not found"
+  mkdir -p "$HOME/.claude" .claude
+  echo '{"SessionStart": "/x/git-shadow hook-start"}' > "$HOME/.claude/settings.json"
+  echo '{"SessionEnd": "git-shadow hook-end"}' > .claude/settings.local.json
+  local out; out=$(shadow onboard)
+  assert_contains "$out" "hook-start  installed (~/.claude/settings.json)"
+  assert_contains "$out" "hook-end    installed (.claude/settings.local.json)"
+}
+
+test_onboard_finds_its_prompt_through_a_symlinked_install() {
+  ln -s "$SHADOW_BIN" "$T/bin/git-shadow"
+  assert_contains "$(git-shadow onboard)" "# Onboard this repository"
+}
+
+test_onboard_fails_clearly_without_its_prompt() {
+  cp "$SHADOW_BIN" "$T/bin/git-shadow"
+  local out rc=0; out=$(git-shadow onboard 2>&1) || rc=$?
+  [ "$rc" != 0 ] || fail "expected onboard to fail"
+  assert_contains "$out" "prompts/onboard.md"
 }
 
 test_hooks_are_silent_outside_git() {
@@ -431,6 +500,51 @@ test_a_gh_that_hangs_falls_back_to_ancestry() {
   out=$(echo '{}' | SHADOW_GH_TIMEOUT=1 shadow hook-start)
   [ $((SECONDS - start)) -lt 10 ] || fail "expected hook-start to give up on gh"
   assert_contains "$out" "merged into the trunk (main)"
+}
+
+test_status_flags_links_whose_target_is_missing() {
+  shadow init >/dev/null
+  manifest 'link notes.md' 'link CONTEXT.md' 'link .scratch/'
+  shadow sync
+  echo n > notes.md
+  local out; out=$(shadow status)
+  assert_contains "$out" "$(printf '  %-40s linked' notes.md)"
+  assert_contains "$out" "$(printf '  %-40s linked' .scratch)"
+  assert_contains "$out" "$(printf '  %-40s dangling (target missing)' CONTEXT.md)"
+}
+
+test_status_says_which_branch_area_holds_a_dangling_links_file() {
+  shadow init >/dev/null
+  manifest 'link docs/notes/TODO.md' 'per-branch docs/notes/'
+  shadow sync
+  branch_with_proposal ../a feat/a docs/notes/TODO.md
+  local out; out=$(shadow status)
+  assert_contains "$out" "$(printf '  %-40s dangling (target missing)' docs/notes/TODO.md)"
+  assert_contains "$out" "branch area feat/a has a proposal at this path; it reaches here when that branch is promoted"
+}
+
+test_status_gives_no_branch_area_hint_without_a_proposal_there() {
+  shadow init >/dev/null
+  manifest 'link docs/notes/TODO.md' 'link docs/adr/' 'per-branch docs/notes/' 'per-branch docs/adr/'
+  shadow sync
+  branch_checkout ../a feat/a  # its branch area gets empty docs/notes/ and docs/adr/ folders
+  rmdir "$SHADOW_REPO/docs/adr"
+  local out; out=$(shadow status)
+  assert_contains "$out" "$(printf '  %-40s dangling (target missing)' docs/adr)"
+  assert_not_contains "$out" "branch area feat/a"
+}
+
+test_status_says_a_numbered_proposal_lands_elsewhere() {
+  shadow init >/dev/null
+  manifest 'link docs/adr/x.md' 'per-branch docs/adr/ numbered'
+  shadow sync
+  branch_with_proposal ../a feat/a docs/adr/x.md
+  assert_contains "$(shadow status)" "branch area feat/a has a proposal at this path, but promoting that branch numbers it, so it lands elsewhere"
+}
+
+test_onboard_flags_links_whose_target_is_missing() {
+  shadow init --link CONTEXT.md >/dev/null
+  assert_contains "$(shadow onboard)" "$(printf '  %-40s dangling (target missing)' CONTEXT.md)"
 }
 
 test_status_shows_pr_states_and_where_they_came_from() {
