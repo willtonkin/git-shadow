@@ -4,7 +4,8 @@
 # SHADOW_HOME. Usage: test/run.sh [test-name...]
 set -euo pipefail
 
-SHADOW_BIN="$(cd "$(dirname "$0")/.." && pwd)/bin/git-shadow"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SHADOW_BIN="$ROOT/bin/git-shadow"
 PROJECT=thing  # the test remote's repo name, so also the shadow repo's name
 PASS=0 FAIL=0
 LOG=$(mktemp)
@@ -789,6 +790,196 @@ test_promote_into_leaves_unrelated_changes_uncommitted() {
   pending_note_and_proposal
   shadow promote feat/a --into feat/renamed >/dev/null
   assert_pending notes.md
+}
+
+# release_repo [tag...]: a git-shadow repo at $T/src built from this working
+# tree, with one commit per tag
+release_repo() {
+  mkdir "$T/src"
+  cp -R "$ROOT/bin" "$ROOT/prompts" "$ROOT/install.sh" "$T/src/"
+  git -C "$T/src" init -q
+  git -C "$T/src" add .
+  git -C "$T/src" commit -qm initial
+  local tag
+  for tag; do release "$tag"; done
+}
+
+# release <tag>: a new commit in $T/src, tagged <tag>
+release() {
+  echo "$1" > "$T/src/released"
+  git -C "$T/src" add released
+  git -C "$T/src" commit -qm "$1"
+  git -C "$T/src" tag "$1"
+}
+
+# install_gs [VAR=value...]: run install.sh against $T/src into $T/inst, linking into $T/ibin
+install_gs() {
+  env GIT_SHADOW_REPO="$T/src" GIT_SHADOW_DIR="$T/inst" GIT_SHADOW_BIN="$T/ibin" "$@" "$BASH" "$ROOT/install.sh" 2>&1
+}
+
+# dev_checkout <dir>: a clone of $T/src on its main branch, as a developer has
+dev_checkout() { git clone -q "$T/src" "$1"; }
+
+test_install_checks_out_the_newest_release_and_links_it() {
+  release_repo v0.1.0 v0.9.0 v0.10.0 v1.0.0-rc1
+  local out; out=$(install_gs)
+  assert_contains "$out" "installed v0.10.0"
+  assert_link "$T/ibin/git-shadow" "$T/inst/bin/git-shadow"
+  [ "$("$T/ibin/git-shadow" version)" = v0.10.0 ] || fail "expected version v0.10.0"
+}
+
+test_install_again_with_no_new_release_says_so() {
+  release_repo v0.1.0
+  install_gs >/dev/null
+  assert_contains "$(install_gs)" "already at v0.1.0"
+}
+
+test_install_again_updates_to_the_newest_release() {
+  release_repo v0.1.0
+  install_gs >/dev/null
+  release v0.2.0
+  assert_contains "$(install_gs)" "updated v0.1.0 -> v0.2.0"
+  [ "$(cat "$T/inst/released")" = v0.2.0 ] || fail "expected v0.2.0 checked out"
+}
+
+test_install_checks_out_ref_instead_of_a_release() {
+  release_repo v0.1.0
+  echo dev > "$T/src/unreleased" && git -C "$T/src" add . && git -C "$T/src" commit -qm dev
+  install_gs GIT_SHADOW_REF=main >/dev/null
+  assert_file "$T/inst/unreleased"
+  install_gs GIT_SHADOW_REF=v0.1.0 >/dev/null
+  assert_missing "$T/inst/unreleased"
+}
+
+test_install_without_releases_stops_and_leaves_nothing() {
+  release_repo
+  local out rc=0; out=$(install_gs) || rc=$?
+  [ "$rc" != 0 ] || fail "expected install to fail"
+  assert_contains "$out" "GIT_SHADOW_REF=main"
+  assert_missing "$T/inst"
+  assert_missing "$T/ibin/git-shadow"
+}
+
+test_install_refuses_a_clone_with_uncommitted_changes() {
+  release_repo v0.1.0
+  install_gs >/dev/null
+  release v0.2.0
+  echo edited >> "$T/inst/install.sh"
+  local out rc=0; out=$(install_gs) || rc=$?
+  [ "$rc" != 0 ] || fail "expected install to fail"
+  assert_contains "$out" "uncommitted changes"
+  [ "$(cat "$T/inst/released")" = v0.1.0 ] || fail "expected the clone left at v0.1.0"
+}
+
+test_install_refuses_a_development_checkout() {
+  release_repo v0.1.0
+  dev_checkout "$T/inst"
+  local out rc=0; out=$(install_gs) || rc=$?
+  [ "$rc" != 0 ] || fail "expected install to fail"
+  assert_contains "$out" "development checkout (on main)"
+  [ "$(git -C "$T/inst" symbolic-ref --short HEAD)" = main ] || fail "expected the checkout left on main"
+}
+
+test_install_updates_a_managed_clone_the_link_already_runs() {
+  release_repo v0.1.0
+  install_gs GIT_SHADOW_DIR="$T/elsewhere" >/dev/null
+  release v0.2.0
+  assert_contains "$(install_gs)" "updated v0.1.0 -> v0.2.0"
+  assert_link "$T/ibin/git-shadow" "$T/elsewhere/bin/git-shadow"
+  assert_missing "$T/inst"
+}
+
+test_install_replaces_a_link_to_a_development_checkout_only_when_forced() {
+  release_repo v0.1.0
+  dev_checkout "$T/dev"
+  mkdir "$T/ibin" && ln -s "$T/dev/bin/git-shadow" "$T/ibin/git-shadow"
+  local out rc=0; out=$(install_gs) || rc=$?
+  [ "$rc" != 0 ] || fail "expected install to fail"
+  assert_contains "$out" "GIT_SHADOW_FORCE=1"
+  assert_link "$T/ibin/git-shadow" "$T/dev/bin/git-shadow"
+  install_gs GIT_SHADOW_FORCE=1 >/dev/null
+  assert_link "$T/ibin/git-shadow" "$T/inst/bin/git-shadow"
+}
+
+test_install_requires_perl() {
+  release_repo v0.1.0
+  mkdir "$T/only"
+  ln -s "$(command -v git)" "$T/only/git"
+  local out rc=0; out=$(install_gs PATH="$T/only") || rc=$?
+  [ "$rc" != 0 ] || fail "expected install to fail"
+  assert_contains "$out" "perl is required"
+  assert_missing "$T/inst"
+}
+
+test_install_requires_git_2_31() {
+  release_repo v0.1.0
+  local real; real=$(command -v git)
+  # shellcheck disable=SC2016  # the $1 and "$@" are for the stub
+  printf '#!/usr/bin/env bash\n[ "$1" = --version ] && { echo "git version 2.30.9"; exit; }\nexec %s "$@"\n' "$real" > "$T/bin/git"
+  chmod +x "$T/bin/git"
+  local out rc=0; out=$(install_gs) || rc=$?
+  [ "$rc" != 0 ] || fail "expected install to fail"
+  assert_contains "$out" "found 2.30.9"
+}
+
+test_install_says_how_to_put_its_bin_on_path() {
+  release_repo v0.1.0
+  assert_contains "$(install_gs)" "export PATH=\"$T/ibin:\$PATH\""
+  assert_not_contains "$(install_gs PATH="$T/ibin:$PATH")" "isn't on your PATH"
+}
+
+test_update_moves_to_the_newest_release_and_leaves_the_link() {
+  release_repo v0.1.0
+  install_gs >/dev/null
+  release v0.2.0
+  rm "$T/ibin/git-shadow" && ln -s "$T/inst/bin/git-shadow" "$T/bin/git-shadow"
+  assert_contains "$(git shadow update 2>&1)" "updated v0.1.0 -> v0.2.0"
+  assert_missing "$T/ibin/git-shadow"
+  [ "$(git shadow version)" = v0.2.0 ] || fail "expected version v0.2.0"
+}
+
+test_update_refuses_a_development_checkout() {
+  release_repo v0.1.0
+  dev_checkout "$T/dev"
+  local out rc=0; out=$("$T/dev/bin/git-shadow" update 2>&1) || rc=$?
+  [ "$rc" != 0 ] || fail "expected update to fail"
+  assert_contains "$out" "development checkout (on main)"
+}
+
+test_version_of_a_development_checkout_shows_commits_and_changes() {
+  release_repo v0.1.0
+  dev_checkout "$T/dev"
+  echo dev > "$T/dev/unreleased" && git -C "$T/dev" add . && git -C "$T/dev" commit -qm dev
+  echo edited >> "$T/dev/install.sh"
+  local v; v=$("$T/dev/bin/git-shadow" version)
+  [[ $v == v0.1.0-1-g*-dirty ]] || fail "expected v0.1.0-1-g<sha>-dirty, got $v"
+}
+
+# changelog <body>: a CHANGELOG.md in the current repo with <body> under [Unreleased]
+changelog() { printf '# Changelog\n\n## [Unreleased]\n%s' "$1" > CHANGELOG.md; }
+
+test_prepare_release_moves_unreleased_entries_under_the_next_version() {
+  changelog $'\n### Added\n\n- a thing\n'
+  git tag v0.1.0
+  [ "$("$ROOT/.github/scripts/prepare-release.sh" minor)" = 0.2.0 ] || fail "expected 0.2.0"
+  assert_contains "$(cat CHANGELOG.md)" $'## [Unreleased]\n\n## [0.2.0] - '"$(date -u +%Y-%m-%d)"$'\n\n### Added\n\n- a thing'
+}
+
+test_prepare_release_refuses_an_empty_unreleased_section() {
+  changelog $'\n'
+  local out rc=0; out=$("$ROOT/.github/scripts/prepare-release.sh" patch 2>&1) || rc=$?
+  [ "$rc" != 0 ] || fail "expected prepare-release to fail"
+  assert_contains "$out" "nothing under [Unreleased]"
+}
+
+test_publish_release_releases_a_new_version_once() {
+  printf '# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - 2026-10-02\n\n- first\n' > CHANGELOG.md
+  touch "$T/gh-prs.json"  # lets the stub gh succeed
+  "$ROOT/.github/scripts/publish-release.sh" >/dev/null
+  assert_contains "$(cat "$T/gh-args")" "release create v0.1.0"
+  git tag v0.1.0 && rm "$T/gh-args"
+  assert_contains "$("$ROOT/.github/scripts/publish-release.sh")" "already released"
+  assert_missing "$T/gh-args"
 }
 
 tests=("$@")

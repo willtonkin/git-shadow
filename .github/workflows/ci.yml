@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck --version && shellcheck bin/git-shadow test/run.sh
+      - run: shellcheck --version && shellcheck bin/git-shadow install.sh test/run.sh .github/scripts/*.sh
 
   test:
     needs: shellcheck
@@ -30,3 +30,21 @@ jobs:
           bash --version | head -n 1
           git --version
           test/run.sh
+
+  # Releases whatever version CHANGELOG.md's newest heading names, once, after
+  # the tests pass on main. A release pull request (release-pr.yml) adds the heading.
+  release:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tag and release the CHANGELOG's newest version if it's new
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/publish-release.sh

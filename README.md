@@ -36,7 +36,17 @@ Requires bash, git 2.31+ and perl. Tested on macOS and Linux.
 Optional: GitHub's [`gh`](https://cli.github.com), logged in, so session start and `status` can tell which branches' pull requests were merged or closed (see [Per-branch areas](#per-branch-areas)). Without it, merges are found from local history.
 
 ```sh
-git clone <this repo> ~/code/git-shadow
+curl -fsSL https://raw.githubusercontent.com/willtonkin/git-shadow/main/install.sh | bash
+```
+
+This clones git-shadow into `~/.local/share/git-shadow` (or `$XDG_DATA_HOME/git-shadow`), checks out the newest release, and links `git-shadow` into `~/.local/bin`, saying so if that isn't on your PATH. Run it again, or `git shadow update`, to update, and `git shadow version` to see what you have. `GIT_SHADOW_DIR` and `GIT_SHADOW_BIN` change where it goes, and `GIT_SHADOW_REF=main` installs the latest development version instead of a release.
+
+It only moves a clone it manages: one checked out at a release, with no local changes. A clone on a branch is a development checkout, which it leaves for you to update with git. If `~/.local/bin/git-shadow` already points at one, set `GIT_SHADOW_FORCE=1` to replace that link with a managed install.
+
+Or install by hand, from a clone anywhere:
+
+```sh
+git clone https://github.com/willtonkin/git-shadow.git ~/code/git-shadow
 ln -s ~/code/git-shadow/bin/git-shadow ~/.local/bin/git-shadow   # anywhere on your PATH
 ```
 
@@ -96,6 +106,8 @@ autocommit on                           # commit the shadow repo when a session 
 | `git shadow promote <branch> [--into <new>]` | Move a branch's per-branch files into the accepted paths, or over to a renamed branch. |
 | `git shadow drop <branch>` | Drop a branch's branch area. Its proposals are committed first, so they stay recoverable from the shadow repo's history. |
 | `git shadow decline` | Never offer a shadow repo for the current repo. Running `init` there later undoes this. |
+| `git shadow version` | Print the installed version, such as `v0.1.0`, or `v0.1.0-3-g07c566a-dirty` from a development checkout. |
+| `git shadow update` | Update to the newest release (or `GIT_SHADOW_REF`), as re-running the install command does. Refuses a development checkout. |
 | `git shadow hook-start` / `hook-end` | Entry points for agent session hooks (see below). |
 
 ## Safety
@@ -202,7 +214,19 @@ test/run.sh test_drop_keeps_branch_area_in_history
 
 Each test runs in a fresh temp directory with an isolated git config and `SHADOW_HOME`.
 
-CI runs `shellcheck bin/git-shadow test/run.sh`, then the suite on Ubuntu (a modern bash) and macOS (bash 3.2), for every push and pull request.
+CI runs shellcheck over the scripts, then the suite on Ubuntu (a modern bash) and macOS (bash 3.2), for every push and pull request.
+
+### Releasing
+
+Add entries under `[Unreleased]` in `CHANGELOG.md` as you go. To release them, run:
+
+```sh
+gh workflow run release-pr.yml -f bump=minor   # or patch, or major
+```
+
+That opens a pull request moving the entries under the next version's heading. Merging it makes CI tag that version and publish a GitHub Release with those entries as notes, once the tests pass on `main`. The release pull request itself has no checks, because GitHub doesn't run CI on pull requests a workflow opens.
+
+The workflow needs **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** turned on.
 
 ## License
 

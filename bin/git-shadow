@@ -43,6 +43,8 @@ usage: git shadow <command>   (or git-shadow <command>)
                                      or (--into) over to a renamed branch
   drop <branch>                      delete a branch's per-branch files
   decline                            never offer a shadow repo for the current repo
+  version                            print the installed version
+  update                             update to the newest release (set GIT_SHADOW_REF for another)
   hook-start                         Claude Code SessionStart hook: sync, then print context
   hook-end                           Claude Code SessionEnd hook: autocommit the shadow repo
 EOF
@@ -767,12 +769,30 @@ hook_installed_in() {
   return 1
 }
 
-# onboard_prompt: where the onboarding prompt is, next to the real git-shadow
-# (resolving the symlink it's usually installed through)
-onboard_prompt() {
+# install_root: the clone the real git-shadow lives in (resolving the symlink
+# it's usually installed through)
+install_root() {
   local real
   real=$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$0")
-  printf '%s/prompts/onboard.md\n' "$(dirname "$(dirname "$real")")"
+  dirname "$(dirname "$real")"
+}
+
+# onboard_prompt: where the onboarding prompt is, next to the real git-shadow
+onboard_prompt() { printf '%s/prompts/onboard.md\n' "$(install_root)"; }
+
+cmd_version() {
+  local root
+  root=$(install_root)
+  [ -e "$root/.git" ] || die "can't tell the version: $root isn't a git clone"
+  git -C "$root" describe --tags --always --dirty
+}
+
+# cmd_update: move this install to the newest release, through its own install.sh
+cmd_update() {
+  local root
+  root=$(install_root)
+  [ -f "$root/install.sh" ] || die "can't update: there's no install.sh in $root"
+  GIT_SHADOW_DIR=$root exec bash "$root/install.sh" --update
 }
 
 cmd_onboard() {
@@ -947,6 +967,8 @@ case "${1:-}" in
   promote) shift; cmd_promote "$@" ;;
   drop) shift; cmd_drop "$@" ;;
   decline) cmd_decline ;;
+  version) cmd_version ;;
+  update) cmd_update ;;
   hook-start) cmd_hook_start ;;
   hook-end) cmd_hook_end 2>/dev/null ;;
   -h|--help|help|"") usage ;;
