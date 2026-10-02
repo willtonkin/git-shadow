@@ -760,7 +760,7 @@ hook_installed_in() {
   local f
   for f in "$HOME/.claude/settings.json" "$1/.claude/settings.json" "$1/.claude/settings.local.json"; do
     if [ -f "$f" ] && grep -qF "git-shadow $2" "$f"; then
-      case $f in "$HOME"/*) echo "~${f#"$HOME"}" ;; *) echo "${f#"$1"/}" ;; esac
+      case $f in "$1"/*) echo "${f#"$1"/}" ;; *) echo "~${f#"$HOME"}" ;; esac
       return 0
     fi
   done
