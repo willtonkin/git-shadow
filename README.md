@@ -46,6 +46,17 @@ Shadow repos live in `~/shadow/` by default. Set `SHADOW_HOME` to change that.
 
 ## Quick start
 
+Let an agent do it:
+
+```sh
+cd ~/code/my-app
+git shadow onboard                # paste the output to your agent, or ask the agent to run it
+```
+
+`onboard` prints what it finds (whether there's a shadow repo, the trunk, whether the [hooks](#agent-integration-claude-code) are installed, and agent files such as `AGENTS.md`, `CLAUDE.md`, `adr/` folders and `.scratch/`, tracked or not), followed by a prompt. The prompt has the agent explain the model, take an inventory, propose a manifest, and set things up once you agree. Moving files your team's repo tracks is a separate step that it asks about first, and it ends in a branch or pull request rather than a commit to the trunk. The prompt lives in `prompts/onboard.md`, which is why git-shadow is installed by symlinking it from its repo.
+
+Or do it by hand:
+
 ```sh
 cd ~/code/my-app                  # the checkout that already has the files
 git shadow init --link AGENTS.md --link .scratch/
@@ -80,6 +91,7 @@ autocommit on                           # commit the shadow repo when a session 
 |---|---|
 | `git shadow init [name] [--link <path>]...` | Create a shadow repo for the current repo and attach this checkout, linking and adopting each `--link` path. By default it's named after the remote's repo, or the main checkout's folder if there's no remote. |
 | `git shadow sync [--all]` | Bring this checkout, or every worktree, in line with the manifest. Repeat runs are harmless. |
+| `git shadow onboard` | Print this repo's state and a prompt that has an agent move your personal files into a shadow repo (see [Quick start](#quick-start)). |
 | `git shadow status` | Show each link's state here, and every per-branch area: whether its branch is current, exists or is gone, and whether it's merged, open or closed. |
 | `git shadow promote <branch> [--into <new>]` | Move a branch's per-branch files into the accepted paths, or over to a renamed branch. |
 | `git shadow drop <branch>` | Drop a branch's branch area. Its proposals are committed first, so they stay recoverable from the shadow repo's history. |
@@ -98,6 +110,11 @@ autocommit on                           # commit the shadow repo when a session 
 ## Per-branch areas
 
 Every checkout shares one copy of each linked path, which is usually what you want: a spec should be visible from every worktree that implements it. Some files, decision records especially, behave better with branch semantics: a proposal written on a spike shouldn't become "accepted" just by existing, and should go away if the spike does.
+
+Which paths deserve that depends on the kind of file:
+
+- **Records** should outlive the branch that wrote them: ADRs, glossaries, runbooks. Put their folders under `per-branch`. A record written on a branch is a proposal until the branch is promoted, and it sits at exactly the path it will have once accepted.
+- **Working files** belong to a piece of work rather than a branch: specs, issues, scratch notes. Keep them at plain links. Work outlives branch renames, merging a branch doesn't make its spec "accepted", and `promote` moves everything in a branch area, so a spec there would be promoted along with the records.
 
 `per-branch <path>` gives each branch its own area for new files under that path:
 
@@ -159,7 +176,7 @@ Hooks often run with a shorter PATH than your shell, so a bare `git-shadow` can 
   - syncs this checkout, so new worktrees are linked automatically, and passes any warnings from the sync (skipped paths, adopted files, a missing trunk) into the agent's context;
   - prints the manifest's `context` files and the per-branch instructions into the session;
   - lists the per-branch areas that need a decision: merged, or gone (see [Per-branch areas](#per-branch-areas));
-- in a repo without one, tells the agent to ask you, once, whether to run `init` or `decline`;
+- in a repo without one, tells the agent to ask you, once, whether to set one up (by running `onboard` and following it) or `decline`;
 - outside git, or in a declined repo, does nothing.
 
 **At session end, `hook-end`** commits all pending changes in the shadow repo if `autocommit on` is set and anything changed. The commit message is always `chore: sync at session end`: several sessions can share one shadow repo, so it doesn't claim the changes came from any one branch or checkout.
